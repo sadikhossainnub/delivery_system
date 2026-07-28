@@ -188,6 +188,22 @@ def get_enabled_providers() -> list[dict]:
 	)
 
 
+@frappe.whitelist()
+def get_booking_config() -> dict:
+	"""Return booking configuration and enabled providers for client scripts."""
+	booking_doctype = frappe.db.get_single_value("Courier Settings", "booking_doctype") or "Both"
+	providers = frappe.get_all(
+		"Courier Provider",
+		filters={"enabled": 1},
+		fields=["name", "courier_name", "provider_code"],
+		order_by="courier_name asc",
+	)
+	return {
+		"booking_doctype": booking_doctype,
+		"providers": providers,
+	}
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers (not whitelisted)
 # ---------------------------------------------------------------------------
@@ -209,6 +225,14 @@ def _do_send_to_courier(
 	Used by bulk_send_to_courier to avoid going through the whitelist decorator.
 	Permission checks are done by the calling whitelist method.
 	"""
+	# Validate allowed booking source doctype from Courier Settings
+	allowed_doctype = frappe.db.get_single_value("Courier Settings", "booking_doctype") or "Both"
+	if allowed_doctype != "Both" and reference_doctype != allowed_doctype:
+		frappe.throw(
+			_("Courier booking is currently restricted to {0} only in Courier Settings.").format(allowed_doctype),
+			frappe.ValidationError,
+		)
+
 	# Prevent duplicate
 	existing = frappe.db.get_value(
 		"Delivery Order",

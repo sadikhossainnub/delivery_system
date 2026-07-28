@@ -126,15 +126,22 @@ delivery_system.show_send_dialog = function (frm, provider_code) {
 };
 
 /**
- * Add "Send to Courier" button with provider picker if multiple providers enabled.
+ * Add "Send to Courier" button with provider picker if allowed by Courier Settings.
  */
 delivery_system.add_send_button = function (frm) {
 	frappe.call({
-		method: "delivery_system.api.get_enabled_providers",
+		method: "delivery_system.api.get_booking_config",
 		callback(r) {
-			if (!r.message || !r.message.length) return;
+			if (!r.message) return;
+			const { booking_doctype, providers } = r.message;
 
-			const providers = r.message;
+			// Hide button if this doctype is not allowed by Courier Settings
+			if (booking_doctype && booking_doctype !== "Both" && booking_doctype !== frm.doc.doctype) {
+				return;
+			}
+
+			if (!providers || !providers.length) return;
+
 			if (providers.length === 1) {
 				frm.add_custom_button(__("Send to Courier"), () => {
 					delivery_system.show_send_dialog(frm, providers[0].provider_code);

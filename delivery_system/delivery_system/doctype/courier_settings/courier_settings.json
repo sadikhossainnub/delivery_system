@@ -5,6 +5,7 @@
  "engine": "InnoDB",
  "field_order": [
   "default_provider",
+  "booking_doctype",
   "auto_sync_status",
   "sync_interval_minutes",
   "section_break_accounts",
@@ -16,6 +17,14 @@
    "fieldtype": "Link",
    "label": "Default Provider",
    "options": "Courier Provider"
+  },
+  {
+   "default": "Both",
+   "description": "Select which document type can be sent to courier",
+   "fieldname": "booking_doctype",
+   "fieldtype": "Select",
+   "label": "Booking Source DocType",
+   "options": "Both\nSales Order\nDelivery Note"
   },
   {
    "default": "1",
