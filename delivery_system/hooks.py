@@ -26,6 +26,7 @@ doctype_js = {
 	"Sales Order": "public/js/sales_order.js",
 	"Delivery Note": "public/js/delivery_note.js",
 	"Delivery Order": "public/js/delivery_order.js",
+	"Courier Settings": "delivery_system/doctype/courier_settings/courier_settings.js",
 }
 
 doctype_list_js = {

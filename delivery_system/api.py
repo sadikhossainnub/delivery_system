@@ -248,6 +248,26 @@ def get_dashboard_stats() -> dict:
 
 
 @frappe.whitelist()
+def download_user_guide():
+	"""Serve the Delivery System User Guide PDF for download."""
+	import os
+
+	pdf_path = frappe.get_app_path("delivery_system", "..", "Delivery_System_User_Guide.pdf")
+	if not os.path.exists(pdf_path):
+		pdf_path = frappe.get_app_path("delivery_system", "Delivery_System_User_Guide.pdf")
+
+	if not os.path.exists(pdf_path):
+		frappe.throw(_("User Guide PDF not found on server."), frappe.FileNotFoundError)
+
+	with open(pdf_path, "rb") as f:
+		content = f.read()
+
+	frappe.response["filename"] = "Delivery_System_User_Guide.pdf"
+	frappe.response["filecontent"] = content
+	frappe.response["type"] = "pdf"
+
+
+@frappe.whitelist()
 def get_enabled_providers() -> list[dict]:
 	"""Return list of enabled Courier Provider records (for JS dropdowns)."""
 	return frappe.get_all(
