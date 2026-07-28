@@ -6,7 +6,7 @@ import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import now_datetime, truncate
+from frappe.utils import now_datetime
 
 # Status groups for easier comparisons
 TERMINAL_STATUSES = {"delivered", "cancelled", "partial_delivered"}
