@@ -1,0 +1,9 @@
+[
+ {
+  "doctype": "Courier Provider",
+  "courier_name": "Steadfast",
+  "provider_code": "steadfast",
+  "enabled": 1,
+  "base_url": "https://portal.packzy.com/api/v1"
+ }
+]

@@ -1,9 +1,109 @@
 app_name = "delivery_system"
 app_title = "Delivery System"
 app_publisher = "primetechbd"
-app_description = "Delivery System"
+app_description = "ERPNext Courier Integration for Bangladeshi courier services (Steadfast, Pathao, RedX, Paperfly)"
 app_email = "sayedtkg@gmail.com"
 app_license = "mit"
+app_version = "1.0.0"
+
+# Required apps — must have ERPNext installed
+required_apps = ["erpnext"]
+
+# ---------------------------------------------------------------------------
+# App includes
+# ---------------------------------------------------------------------------
+
+# Load delivery_system_utils.js globally so SO/DN scripts can use it
+app_include_js = [
+	"/assets/delivery_system/js/delivery_system_utils.js",
+]
+
+# ---------------------------------------------------------------------------
+# DocType-specific client scripts
+# ---------------------------------------------------------------------------
+
+doctype_js = {
+	"Sales Order": "public/js/sales_order.js",
+	"Delivery Note": "public/js/delivery_note.js",
+	"Delivery Order": "public/js/delivery_order.js",
+}
+
+doctype_list_js = {
+	"Sales Order": "public/js/sales_order_list.js",
+	"Delivery Note": "public/js/delivery_note_list.js",
+}
+
+# ---------------------------------------------------------------------------
+# Fixtures (exported data to seed on install/migrate)
+# ---------------------------------------------------------------------------
+
+fixtures = [
+	{
+		"doctype": "Courier Provider",
+		"filters": [["provider_code", "in", ["steadfast", "pathao", "redx", "paperfly", "ecourier"]]],
+	}
+]
+
+# ---------------------------------------------------------------------------
+# Scheduled Tasks
+# ---------------------------------------------------------------------------
+
+scheduler_events = {
+	"cron": {
+		# Sync pending delivery statuses every 30 minutes
+		"*/30 * * * *": [
+			"delivery_system.tasks.sync_pending_deliveries"
+		],
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Permissions
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Installation hooks
+# ---------------------------------------------------------------------------
+
+# after_install = "delivery_system.install.after_install"
+
+# ---------------------------------------------------------------------------
+# Document Events
+# ---------------------------------------------------------------------------
+
+# doc_events = {
+# 	"Sales Order": {
+# 		"on_submit": "delivery_system.doc_events.sales_order.on_submit",
+# 	},
+# }
+
+# ---------------------------------------------------------------------------
+# Request Events
+# ---------------------------------------------------------------------------
+
+# before_request = ["delivery_system.utils.before_request"]
+# after_request = ["delivery_system.utils.after_request"]
+
+# ---------------------------------------------------------------------------
+# User Data Protection
+# ---------------------------------------------------------------------------
+
+# user_data_fields = []
+
+# ---------------------------------------------------------------------------
+# Authentication and authorization
+# ---------------------------------------------------------------------------
+
+# auth_hooks = []
+
+# ---------------------------------------------------------------------------
+# Log clearing
+# ---------------------------------------------------------------------------
+
+default_log_clearing_doctypes = {
+	"Delivery Order Log": 90,  # retain for 90 days
+}
+
 
 # Apps
 # ------------------

@@ -1,0 +1,247 @@
+{
+ "actions": [],
+ "autoname": "DS-.YYYY.-.#####",
+ "creation": "2026-07-28 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "reference_section",
+  "reference_doctype",
+  "reference_name",
+  "courier_provider",
+  "column_break_ref",
+  "invoice_reference",
+  "delivery_status",
+  "last_synced_on",
+  "section_recipient",
+  "recipient_name",
+  "recipient_phone",
+  "column_break_recipient",
+  "recipient_address",
+  "delivery_type",
+  "section_order",
+  "cod_amount",
+  "note",
+  "section_courier_response",
+  "consignment_id",
+  "tracking_code",
+  "column_break_courier",
+  "section_raw",
+  "raw_response",
+  "section_logs",
+  "delivery_logs"
+ ],
+ "fields": [
+  {
+   "fieldname": "reference_section",
+   "fieldtype": "Section Break",
+   "label": "Reference"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Reference DocType",
+   "options": "\nSales Order\nDelivery Note",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Reference Name",
+   "options": "reference_doctype",
+   "reqd": 1
+  },
+  {
+   "fieldname": "courier_provider",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Courier Provider",
+   "options": "Courier Provider",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_ref",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoice_reference",
+   "fieldtype": "Data",
+   "label": "Invoice Reference",
+   "read_only": 0,
+   "unique": 1
+  },
+  {
+   "fieldname": "delivery_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Delivery Status",
+   "options": "\npending\nin_review\ndelivered_approval_pending\npartial_delivered_approval_pending\ncancelled_approval_pending\ndelivered\npartial_delivered\ncancelled\nhold\nunknown",
+   "default": "pending",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced_on",
+   "fieldtype": "Datetime",
+   "label": "Last Synced On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_recipient",
+   "fieldtype": "Section Break",
+   "label": "Recipient Details"
+  },
+  {
+   "fieldname": "recipient_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Recipient Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "recipient_phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Recipient Phone",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_recipient",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "recipient_address",
+   "fieldtype": "Small Text",
+   "label": "Recipient Address",
+   "reqd": 1
+  },
+  {
+   "fieldname": "delivery_type",
+   "fieldtype": "Select",
+   "label": "Delivery Type",
+   "options": "Home Delivery\nPoint Delivery",
+   "default": "Home Delivery"
+  },
+  {
+   "fieldname": "section_order",
+   "fieldtype": "Section Break",
+   "label": "Order Details"
+  },
+  {
+   "fieldname": "cod_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "COD Amount"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
+  },
+  {
+   "fieldname": "section_courier_response",
+   "fieldtype": "Section Break",
+   "label": "Courier Response"
+  },
+  {
+   "fieldname": "consignment_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Consignment ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tracking_code",
+   "fieldtype": "Data",
+   "label": "Tracking Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_courier",
+   "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_raw",
+   "fieldtype": "Section Break",
+   "label": "Raw API Response"
+  },
+  {
+   "fieldname": "raw_response",
+   "fieldtype": "Code",
+   "label": "Raw Response",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_logs",
+   "fieldtype": "Section Break",
+   "label": "Status Log"
+  },
+  {
+   "fieldname": "delivery_logs",
+   "fieldtype": "Table",
+   "label": "Delivery Logs",
+   "options": "Delivery Order Log",
+   "read_only": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-07-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Delivery System",
+ "name": "Delivery Order",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Delivery Manager",
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "write": 1,
+   "amend": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "write": 1,
+   "amend": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "reference_name",
+ "track_changes": 1
+}
