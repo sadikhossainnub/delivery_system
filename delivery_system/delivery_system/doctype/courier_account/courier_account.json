@@ -10,7 +10,13 @@
   "column_break_1",
   "api_key",
   "secret_key",
-  "webhook_secret"
+  "webhook_secret",
+  "section_break_acc",
+  "clearing_account",
+  "delivery_charge_account",
+  "column_break_acc",
+  "variance_account",
+  "default_mode_of_payment"
  ],
  "fields": [
   {
@@ -50,6 +56,39 @@
    "fieldname": "webhook_secret",
    "fieldtype": "Password",
    "label": "Webhook Secret"
+  },
+  {
+   "fieldname": "section_break_acc",
+   "fieldtype": "Section Break",
+   "label": "Accounting Configuration"
+  },
+  {
+   "fieldname": "clearing_account",
+   "fieldtype": "Link",
+   "label": "Courier Clearing Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "delivery_charge_account",
+   "fieldtype": "Link",
+   "label": "Delivery Charge Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_acc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "variance_account",
+   "fieldtype": "Link",
+   "label": "Courier Variance Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "default_mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Default Mode of Payment",
+   "options": "Mode of Payment"
   }
  ],
  "istable": 1,

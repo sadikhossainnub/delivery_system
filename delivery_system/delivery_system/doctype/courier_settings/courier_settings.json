@@ -8,6 +8,8 @@
   "booking_doctype",
   "auto_sync_status",
   "sync_interval_minutes",
+  "enable_accounting_automation",
+  "variance_threshold_auto_post",
   "section_break_accounts",
   "courier_accounts"
  ],
@@ -37,6 +39,19 @@
    "fieldname": "sync_interval_minutes",
    "fieldtype": "Int",
    "label": "Sync Interval (Minutes)"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_accounting_automation",
+   "fieldtype": "Check",
+   "label": "Enable Accounting Automation"
+  },
+  {
+   "default": "50.0",
+   "description": "Maximum variance amount in Taka to auto-post to Courier Variance account",
+   "fieldname": "variance_threshold_auto_post",
+   "fieldtype": "Currency",
+   "label": "Auto Post Variance Threshold"
   },
   {
    "fieldname": "section_break_accounts",

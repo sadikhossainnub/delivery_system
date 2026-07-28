@@ -28,6 +28,9 @@
   "column_break_courier",
   "payment_reconciled",
   "reconciled_payment_id",
+  "clearing_entry_posted",
+  "clearing_journal_entry",
+  "reversal_journal_entry",
   "section_raw",
   "raw_response",
   "section_logs",
@@ -177,6 +180,27 @@
    "fieldname": "reconciled_payment_id",
    "fieldtype": "Data",
    "label": "Reconciled Payment ID",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "clearing_entry_posted",
+   "fieldtype": "Check",
+   "label": "Clearing Entry Posted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "clearing_journal_entry",
+   "fieldtype": "Link",
+   "label": "Clearing Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reversal_journal_entry",
+   "fieldtype": "Link",
+   "label": "Reversal Journal Entry",
+   "options": "Journal Entry",
    "read_only": 1
   },
   {

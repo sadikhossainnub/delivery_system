@@ -99,6 +99,16 @@ class DeliveryOrder(Document):
 		# Mirror status on the linked SO/DN
 		self._update_reference_status(new_status)
 
+		# Accounting integration triggers
+		try:
+			from delivery_system.accounting import post_clearing_entry, reverse_clearing_entry
+			if new_status == "delivered":
+				post_clearing_entry(self)
+			elif new_status in ("cancelled", "partial_delivered") and getattr(self, "clearing_entry_posted", 0):
+				reverse_clearing_entry(self)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "DeliveryOrder.update_status.accounting")
+
 	def _update_reference_status(self, status: str):
 		"""Push delivery_status to the custom field on linked Sales Order / Delivery Note."""
 		if not (self.reference_doctype and self.reference_name):
