@@ -8,3 +8,16 @@ frappe.ui.form.on("Courier Settings", {
 		}, __("Help"));
 	},
 });
+
+frappe.ui.form.on("Courier Account", {
+	form_render(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		if (!row.webhook_secret) {
+			row.webhook_secret = frappe.utils.get_random(32);
+		}
+		if (!row.webhook_url) {
+			row.webhook_url = window.location.origin + "/api/method/delivery_system.webhook.steadfast_webhook";
+		}
+		frm.refresh_field("courier_accounts");
+	}
+});

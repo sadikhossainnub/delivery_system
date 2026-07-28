@@ -10,6 +10,8 @@
   "column_break_1",
   "api_key",
   "secret_key",
+  "section_break_webhook",
+  "webhook_url",
   "webhook_secret",
   "section_break_acc",
   "clearing_account",
@@ -53,9 +55,23 @@
    "reqd": 1
   },
   {
+   "fieldname": "section_break_webhook",
+   "fieldtype": "Section Break",
+   "label": "Webhook Integration"
+  },
+  {
+   "fieldname": "webhook_url",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Webhook URL",
+   "read_only": 1
+  },
+  {
    "fieldname": "webhook_secret",
-   "fieldtype": "Password",
-   "label": "Webhook Secret"
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Webhook Secret",
+   "read_only": 1
   },
   {
    "fieldname": "section_break_acc",
