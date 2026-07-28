@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Delivery System — ERPNext Courier Integration User Guide</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 15mm 20mm 15mm;
+    @bottom-right {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 8pt;
+      color: #64748b;
+    }
+    @bottom-left {
+      content: "Delivery System v1.0.0 — ERPNext Custom App";
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 8pt;
+      color: #64748b;
+    }
+  }
+
+  body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    line-height: 1.5;
+    font-size: 10pt;
+  }
+
+  /* Cover Page */
+  .cover {
+    page-break-after: always;
+    text-align: center;
+    padding-top: 60mm;
+  }
+  .cover-logo {
+    font-size: 28pt;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.5px;
+    margin-bottom: 5px;
+  }
+  .cover-subtitle {
+    font-size: 14pt;
+    color: #2563eb;
+    font-weight: 600;
+    margin-bottom: 20px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .cover-desc {
+    font-size: 11pt;
+    color: #475569;
+    max-width: 480px;
+    margin: 0 auto 40px auto;
+  }
+  .cover-badge {
+    display: inline-block;
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 9pt;
+    font-weight: 600;
+  }
+  .cover-footer {
+    margin-top: 70mm;
+    font-size: 9pt;
+    color: #94a3b8;
+  }
+
+  /* Headings */
+  h1 {
+    font-size: 18pt;
+    color: #0f172a;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 5px;
+    margin-top: 25px;
+    margin-bottom: 12px;
+    page-break-after: avoid;
+  }
+  h2 {
+    font-size: 13pt;
+    color: #1e40af;
+    margin-top: 18px;
+    margin-bottom: 8px;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11pt;
+    color: #334155;
+    margin-top: 14px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+
+  /* Content Elements */
+  p {
+    margin-top: 0;
+    margin-bottom: 10px;
+  }
+  ul, ol {
+    margin-top: 0;
+    margin-bottom: 10px;
+    padding-left: 20px;
+  }
+  li {
+    margin-bottom: 4px;
+  }
+
+  /* Callout Boxes */
+  .callout {
+    background-color: #f8fafc;
+    border-left: 4px solid #2563eb;
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 9.5pt;
+  }
+  .callout-title {
+    font-weight: 700;
+    color: #1e3a8a;
+    margin-bottom: 4px;
+  }
+  .callout-success {
+    background-color: #f0fdf4;
+    border-left-color: #16a34a;
+  }
+  .callout-success .callout-title { color: #14532d; }
+
+  .callout-warning {
+    background-color: #fffbeb;
+    border-left-color: #d97706;
+  }
+  .callout-warning .callout-title { color: #78350f; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 9pt;
+  }
+  th {
+    background-color: #0f172a;
+    color: #ffffff;
+    font-weight: 600;
+    text-align: left;
+    padding: 7px 10px;
+    border: 1px solid #0f172a;
+  }
+  td {
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+  }
+  tr:nth-child(even) td {
+    background-color: #f8fafc;
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 8pt;
+    font-weight: 600;
+  }
+  .badge-green { background-color: #dcfce7; color: #15803d; }
+  .badge-blue { background-color: #dbeafe; color: #1e40af; }
+  .badge-orange { background-color: #ffedd5; color: #c2410c; }
+  .badge-red { background-color: #fee2e2; color: #b91c1c; }
+  .badge-grey { background-color: #f1f5f9; color: #475569; }
+
+  /* Code Blocks */
+  pre, code {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 8.5pt;
+  }
+  pre {
+    background-color: #1e293b;
+    color: #f8fafc;
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 10px 0;
+  }
+  p code, li code {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    padding: 2px 5px;
+    border-radius: 4px;
+  }
+
+  .page-break {
+    page-break-after: always;
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER PAGE -->
+<div class="cover">
+  <div class="cover-logo">Delivery System</div>
+  <div class="cover-subtitle">ERPNext Courier Integration User Guide</div>
+  <div class="cover-desc">
+    Complete Operational & Technical Documentation for Multi-Tenant ERPNext v15/v16 Courier Integration (Steadfast, Pathao, RedX)
+  </div>
+  <div>
+    <span class="cover-badge">Version 1.0.0 — Production Edition</span>
+  </div>
+  <div class="cover-footer">
+    Published by <strong>PrimeTechBD</strong><br>
+    License: MIT &bull; Multi-Company &amp; Multi-Site Ready
+  </div>
+</div>
+
+<!-- TABLE OF CONTENTS / EXECUTIVE SUMMARY -->
+<h1>1. Executive Summary &amp; Architecture</h1>
+<p>
+  The <strong>Delivery System</strong> custom app provides seamless, production-ready integration between ERPNext v15/v16 and Bangladeshi courier services (starting with <strong>Steadfast Courier</strong>, with pluggable support for Pathao, RedX, Paperfly, and eCourier).
+</p>
+
+<div class="callout">
+  <div class="callout-title">Key Operational Highlights</div>
+  <ul>
+    <li><strong>One-Click &amp; Bulk Booking:</strong> Book orders directly from Sales Order or Delivery Note forms or in bulk (up to 500 per batch) from List Views.</li>
+    <li><strong>Automated Real-Time Tracking:</strong> Automated 30-minute status polling plus inbound webhook listener for instant status updates.</li>
+    <li><strong>Automated Accounting:</strong> Automatic Journal Entries for courier clearing, Payment Entries for payouts, delivery charge splitting, and variance adjustments.</li>
+    <li><strong>8 Script Reports &amp; Dashboard:</strong> Complete suite of delivery, stuck parcel, reconciliation, and financial performance reports.</li>
+  </ul>
+</div>
+
+<h2>Module Overview</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Component</th>
+      <th>DocType / File</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Courier Master</td>
+      <td><code>Courier Provider</code></td>
+      <td>Master list of supported couriers (Steadfast, Pathao, RedX, etc.)</td>
+    </tr>
+    <tr>
+      <td>Settings</td>
+      <td><code>Courier Settings</code></td>
+      <td>Global options, source doctype selection, accounting automation toggles</td>
+    </tr>
+    <tr>
+      <td>Company Accounts</td>
+      <td><code>Courier Account</code></td>
+      <td>Child table mapping API keys and GL accounts per ERPNext company</td>
+    </tr>
+    <tr>
+      <td>Consignment DocType</td>
+      <td><code>Delivery Order</code></td>
+      <td>Submittable core tracking record (<code>DS-YYYY-XXXXX</code>) with audit log</td>
+    </tr>
+    <tr>
+      <td>Payout Audit Log</td>
+      <td><code>Courier Payout Log</code></td>
+      <td>Tracks courier payout batches, charges deducted, and Payment Entries</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="page-break"></div>
+
+<h1>2. Installation &amp; Configuration Guide</h1>
+
+<h2>2.1 Installation Steps</h2>
+<p>To install the app on your Frappe bench and target site:</p>
+<pre># 1. Fetch the repository
+bench get-app delivery_system https://github.com/sadikhossainnub/delivery_system.git
+
+# 2. Install on target ERPNext site
+bench --site erp.yourdomain.com install-app delivery_system
+
+# 3. Run database migrations
+bench --site erp.yourdomain.com migrate</pre>
+
+<h2>2.2 Courier Settings Setup</h2>
+<ol>
+  <li>Navigate to <strong>Delivery System &gt; Courier Settings</strong> in Desk.</li>
+  <li>Set <strong>Default Provider</strong> to <code>Steadfast</code>.</li>
+  <li>Set <strong>Booking Source DocType</strong>:
+    <ul>
+      <li><code>Both</code>: Allow booking from both Sales Order and Delivery Note.</li>
+      <li><code>Sales Order</code>: Restrict booking to Sales Orders only.</li>
+      <li><code>Delivery Note</code>: Restrict booking to Delivery Notes only.</li>
+    </ul>
+  </li>
+  <li>Check <strong>Enable Accounting Automation</strong> (enabled by default).</li>
+  <li>Set <strong>Auto Post Variance Threshold</strong> (e.g., <code>50.0</code> Taka).</li>
+</ol>
+
+<h2>2.3 Configuring Company Credentials &amp; Accounts</h2>
+<p>In the <strong>Courier Accounts</strong> child table, add a row for each company:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Setting Field</th>
+      <th>Recommended Value</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Company</strong></td>
+      <td>Your Company Name</td>
+      <td>Target ERPNext company</td>
+    </tr>
+    <tr>
+      <td><strong>Courier Provider</strong></td>
+      <td>Steadfast</td>
+      <td>Selected courier service</td>
+    </tr>
+    <tr>
+      <td><strong>API Key</strong></td>
+      <td><code>your_api_key</code></td>
+      <td>From Steadfast merchant panel (portal.packzy.com)</td>
+    </tr>
+    <tr>
+      <td><strong>Secret Key</strong></td>
+      <td><code>••••••••</code></td>
+      <td>Encrypted password field (never exposed in logs/UI)</td>
+    </tr>
+    <tr>
+      <td><strong>Clearing Account</strong></td>
+      <td>Steadfast Clearing Account</td>
+      <td>Asset (Bank/Current Asset) holding account</td>
+    </tr>
+    <tr>
+      <td><strong>Delivery Charge Account</strong></td>
+      <td>Delivery Charges</td>
+      <td>Expense account for shipping fees</td>
+    </tr>
+    <tr>
+      <td><strong>Variance Account</strong></td>
+      <td>Courier Variance</td>
+      <td>Expense/Income account for small COD rounding differences</td>
+    </tr>
+    <tr>
+      <td><strong>Default Mode of Payment</strong></td>
+      <td>Steadfast COD</td>
+      <td>Mode of Payment record linked to Bank Account</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="page-break"></div>
+
+<h1>3. Parcel Booking &amp; Tracking Operations</h1>
+
+<h2>3.1 Single Parcel Booking</h2>
+<ol>
+  <li>Open a submitted <strong>Sales Order</strong> or <strong>Delivery Note</strong>.</li>
+  <li>Click the <strong>Send to Courier</strong> button in the top action bar.</li>
+  <li>Review recipient details in the modal dialog:
+    <ul>
+      <li><strong>Recipient Phone:</strong> Must be a valid 11-digit Bangladeshi mobile number (e.g., <code>01712345678</code>).</li>
+      <li><strong>Recipient Address:</strong> Automatically truncated to 250 characters max.</li>
+      <li><strong>COD Amount:</strong> Defaults to document grand total.</li>
+      <li><strong>Delivery Type:</strong> Home Delivery (HD) or Point Delivery (PD).</li>
+    </ul>
+  </li>
+  <li>Click <strong>Book Courier</strong>. The system auto-creates and submits a <code>Delivery Order</code>, registers the consignment with Steadfast, and populates the <code>Consignment ID</code> and <code>Tracking Code</code>.</li>
+</ol>
+
+<h2>3.2 Bulk Booking from List View</h2>
+<ol>
+  <li>Go to <strong>Sales Order List</strong> or <strong>Delivery Note List</strong>.</li>
+  <li>Select multiple submitted orders via checkboxes.</li>
+  <li>Click <strong>Actions &gt; Send Selected to Courier</strong>.</li>
+  <li>The app processes orders in batch (up to 500 items) and displays a detailed success/failure summary.</li>
+</ol>
+
+<h2>3.3 Status Lifecycle &amp; Badges</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Badge Color</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge badge-orange">pending</span></td>
+      <td>Orange</td>
+      <td>Consignment booked with courier, pending pickup</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-orange">in_review</span></td>
+      <td>Yellow / Orange</td>
+      <td>Parcel in transit / under review at courier hub</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-green">delivered</span></td>
+      <td>Green</td>
+      <td>Parcel successfully delivered to recipient</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-red">cancelled</span></td>
+      <td>Red</td>
+      <td>Parcel cancelled or returned to merchant</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-grey">hold</span></td>
+      <td>Grey</td>
+      <td>Delivery placed on hold by courier</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>3.4 Inbound Webhooks &amp; Status Polling</h2>
+<ul>
+  <li><strong>Background Scheduler:</strong> <code>sync_pending_deliveries</code> runs every 30 minutes to refresh non-terminal orders.</li>
+  <li><strong>Inbound Webhook Endpoint:</strong> Configure <code>https://your-site/api/method/delivery_system.webhook.steadfast_webhook</code> in Steadfast merchant panel for real-time push updates.</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h1>4. Automated Accounting &amp; Reconciliation</h1>
+
+<h2>4.1 Automated Journal &amp; Payment Entries Flow</h2>
+<p>The app automates all GL postings using standard ERPNext accounting APIs without requiring manual bookkeeping:</p>
+
+<div class="callout callout-success">
+  <div class="callout-title">Phase 1: Delivery Confirmation (Clearing Entry)</div>
+  When an order is marked <strong>delivered</strong>, the system posts a Journal Entry:<br>
+  <code><strong>Debit:</strong> Steadfast Clearing Account (Asset) [COD Amount]</code><br>
+  <code><strong>Credit:</strong> Debtors (Customer Receivable) [COD Amount]</code><br>
+  <em>Effect: Transfers receivable from customer to courier clearing account.</em>
+</div>
+
+<div class="callout callout-success">
+  <div class="callout-title">Phase 2: Payout &amp; Delivery Charge Posting</div>
+  When Steadfast releases a payout batch:
+  <ul>
+    <li><strong>Net Payout:</strong> <code>Payment Entry (Debit: Bank Account / Credit: Clearing Account)</code></li>
+    <li><strong>Delivery Charges:</strong> <code>Journal Entry (Debit: Delivery Charges Expense / Credit: Clearing Account)</code></li>
+  </ul>
+  <em>Effect: Clearing account nets to zero for all reconciled consignments.</em>
+</div>
+
+<div class="callout callout-warning">
+  <div class="callout-title">Phase 3: Variance &amp; Cancellation Reversals</div>
+  <ul>
+    <li><strong>Small Variance (&le; 50 Taka):</strong> Auto-posted to <code>Courier Variance</code> account.</li>
+    <li><strong>Large Variance (&gt; 50 Taka):</strong> Flagged in COD Reconciliation report for manual review.</li>
+    <li><strong>Order Cancellation Post-Delivery:</strong> Automatically posts an equal-and-opposite reversal Journal Entry.</li>
+  </ul>
+</div>
+
+<div class="page-break"></div>
+
+<h1>5. Reports &amp; Analytics Suite</h1>
+
+<p>The app includes 8 comprehensive Script Reports accessible from Desk:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Report Name</th>
+      <th>Key Purpose</th>
+      <th>Filters</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>1. Courier Delivery Status</strong></td>
+      <td>Single view of all delivery orders, consignment IDs, status, and days pending</td>
+      <td>Date range, Provider, Status, Company</td>
+    </tr>
+    <tr>
+      <td><strong>2. Pending Stuck Deliveries</strong></td>
+      <td>Surfaces parcels stuck &ge; N days (default 3) for operational follow-up</td>
+      <td>Min Days Pending, Provider, Company</td>
+    </tr>
+    <tr>
+      <td><strong>3. COD Reconciliation</strong></td>
+      <td>Matches expected COD vs courier payouts. Includes "Mark Manually Reconciled" button</td>
+      <td>Date range, Reconciled Status, Company</td>
+    </tr>
+    <tr>
+      <td><strong>4. Return Cancelled Orders</strong></td>
+      <td>Analyzes cancelled/returned orders with log reasons for return pattern analysis</td>
+      <td>Date range, Provider, Company</td>
+    </tr>
+    <tr>
+      <td><strong>5. Courier Performance</strong></td>
+      <td>Multi-courier comparison: Total Bookings, Delivered Count, Success Rate %, Avg Time</td>
+      <td>Date range, Company</td>
+    </tr>
+    <tr>
+      <td><strong>6. Zone Wise Delivery</strong></td>
+      <td>Delivery success rate grouped by geographic district/area</td>
+      <td>Date range, Provider, Company</td>
+    </tr>
+    <tr>
+      <td><strong>7. Delivery Charge vs Revenue</strong></td>
+      <td>Per-order margin analysis (Invoice Amount − Delivery Charges − COD Fees)</td>
+      <td>Date range, Company</td>
+    </tr>
+    <tr>
+      <td><strong>8. Courier Clearing Statement</strong></td>
+      <td>Mini ledger statement of Clearing Account: Opening Balance, Dr/Cr, Closing Balance</td>
+      <td>Date range, Company</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>5.1 Dashboard Number Cards</h2>
+<ul>
+  <li><strong>Courier Account Balance:</strong> Live balance from Steadfast API (cached 15 minutes).</li>
+  <li><strong>Today's Bookings:</strong> Total consignments booked today.</li>
+  <li><strong>Today Delivered:</strong> Total orders marked delivered today.</li>
+  <li><strong>Today Cancelled:</strong> Total orders cancelled today.</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h1>6. Developer &amp; Extensibility Guide</h1>
+
+<h2>6.1 Architecture Overview</h2>
+<pre>delivery_system/
+├── couriers/
+│   ├── __init__.py          # BaseCourierClient ABC + get_client() factory
+│   ├── steadfast.py         # Full Steadfast implementation (12 API endpoints)
+│   ├── pathao.py            # Pluggable stub
+│   └── redx.py              # Pluggable stub
+├── api.py                   # Whitelisted endpoints
+├── accounting.py            # Automated GL / JE / PE posting engine
+├── tasks.py                 # Scheduled background jobs
+└── webhook.py               # Inbound webhook processing</pre>
+
+<h2>6.2 Adding a New Courier Service</h2>
+<p>To integrate a new courier (e.g., Pathao or RedX):</p>
+<ol>
+  <li>Create <code>delivery_system/couriers/mycourier.py</code> implementing <code>BaseCourierClient</code>.</li>
+  <li>Register the module mapping in <code>REGISTRY</code> inside <code>delivery_system/couriers/__init__.py</code>:
+    <pre>REGISTRY = {
+    "steadfast": "delivery_system.couriers.steadfast",
+    "mycourier": "delivery_system.couriers.mycourier",
+}</pre>
+  </li>
+  <li>Add a fixture record in <code>Courier Provider</code> with <code>provider_code = "mycourier"</code>. No core code refactoring required!</li>
+</ol>
+
+<h2>6.3 Running Unit Tests</h2>
+<p>Run the full test suite (14 unit tests) using bench python environment:</p>
+<pre>/home/sayed/frappe-bench/env/bin/python -m unittest discover -s delivery_system/tests -p "test_*.py"</pre>
+
+<div class="callout callout-success" style="margin-top: 30px;">
+  <div class="callout-title">Support &amp; Maintenance</div>
+  For issues, feature requests, or enterprise support, contact <strong>PrimeTechBD</strong> or visit the GitHub repository:<br>
+  <code>https://github.com/sadikhossainnub/delivery_system</code>
+</div>
+
+</body>
+</html>
