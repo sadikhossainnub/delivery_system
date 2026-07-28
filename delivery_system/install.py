@@ -18,17 +18,63 @@ from frappe import _
 
 
 def after_install():
-	"""Run full accounting setup after app installation."""
+	"""Run full accounting setup and custom fields creation after app installation."""
 	frappe.logger("delivery_system").info("Delivery System: running after_install setup …")
+	_create_courier_custom_fields()
 	_setup_all_companies()
+	_sync_existing_reference_links()
 	frappe.db.commit()
 	frappe.logger("delivery_system").info("Delivery System: after_install complete.")
 
 
 def after_migrate():
-	"""Re-run accounting setup on every migrate (idempotent)."""
+	"""Re-run accounting setup and custom fields creation on every migrate (idempotent)."""
+	_create_courier_custom_fields()
 	_setup_all_companies()
+	_sync_existing_reference_links()
 	frappe.db.commit()
+
+
+def _create_courier_custom_fields():
+	"""Create courier custom fields on Sales Order and Delivery Note DocTypes."""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	courier_fields = [
+		{
+			"fieldname": "delivery_system_section",
+			"fieldtype": "Section Break",
+			"label": "Courier",
+			"insert_after": "customer",
+			"collapsible": 1,
+		},
+		{
+			"fieldname": "delivery_order_ref",
+			"fieldtype": "Link",
+			"label": "Delivery Order",
+			"options": "Delivery Order",
+			"insert_after": "delivery_system_section",
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+		},
+		{
+			"fieldname": "courier_status",
+			"fieldtype": "Data",
+			"label": "Courier Status",
+			"insert_after": "delivery_order_ref",
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+			"in_list_view": 1,
+		},
+	]
+
+	custom_fields = {
+		"Sales Order": courier_fields,
+		"Delivery Note": courier_fields,
+	}
+
+	create_custom_fields(custom_fields, ignore_validate=True)
 
 
 def _setup_all_companies():
@@ -239,3 +285,27 @@ def _update_courier_settings(
 		settings.save(ignore_permissions=True)
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "Delivery System: update Courier Settings")
+
+
+def _sync_existing_reference_links():
+	"""Ensure all existing Delivery Order records update their parent SO/DN delivery_order_ref & courier_status."""
+	dos = frappe.get_all(
+		"Delivery Order",
+		filters={"docstatus": ["!=", 2]},
+		fields=["name", "reference_doctype", "reference_name", "delivery_status"],
+	)
+	for d in dos:
+		if d.reference_doctype and d.reference_name:
+			if frappe.db.exists(d.reference_doctype, d.reference_name):
+				try:
+					frappe.db.set_value(
+						d.reference_doctype,
+						d.reference_name,
+						{
+							"delivery_order_ref": d.name,
+							"courier_status": d.delivery_status,
+						},
+					)
+				except Exception:
+					pass
+
