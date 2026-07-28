@@ -1,0 +1,23 @@
+{
+ "aggregate_function_based_on": "",
+ "color": "#e67e22",
+ "creation": "2026-07-28 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Delivery Order",
+ "dynamic_filters_json": "[]",
+ "filters_json": "[[\"Delivery Order\",\"delivery_status\",\"=\",\"delivered\",false],[\"Delivery Order\",\"payment_reconciled\",\"=\",0,false]]",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Unreconciled Payments",
+ "modified": "2026-07-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Delivery System",
+ "name": "Unreconciled Payments",
+ "owner": "Administrator",
+ "parent_document_type": "",
+ "show_full_number": 0,
+ "type": "Document Type"
+}

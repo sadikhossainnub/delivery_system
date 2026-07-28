@@ -1,0 +1,18 @@
+{
+ "creation": "2026-07-28 00:00:00.000000",
+ "currency": "BDT",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Steadfast Current Balance",
+ "method": "delivery_system.dashboard.get_courier_balance_card",
+ "modified": "2026-07-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Delivery System",
+ "name": "Steadfast Current Balance",
+ "owner": "Administrator",
+ "show_full_number": 0,
+ "type": "Custom"
+}

@@ -1,0 +1,22 @@
+{
+ "aggregate_function_based_on": "",
+ "creation": "2026-07-28 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Delivery Order",
+ "dynamic_filters_json": "[]",
+ "filters_json": "[[\"Delivery Order\",\"delivery_status\",\"=\",\"cancelled\",false],[\"Delivery Order\",\"last_synced_on\",\"Timespan\",\"today\",false]]",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Today Cancelled",
+ "modified": "2026-07-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Delivery System",
+ "name": "Today Cancelled",
+ "owner": "Administrator",
+ "parent_document_type": "",
+ "show_full_number": 0,
+ "type": "Document Type"
+}
