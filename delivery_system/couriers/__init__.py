@@ -90,7 +90,7 @@ class BaseCourierClient(ABC):
 	def get_return_requests(self) -> list[dict]:
 		raise NotImplementedError
 
-	def get_payments(self) -> list[dict]:
+	def get_payments(self, date_from: str | None = None, date_to: str | None = None) -> list[dict]:
 		raise NotImplementedError
 
 	def get_payment(self, payment_id: str) -> dict:

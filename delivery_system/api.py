@@ -178,6 +178,76 @@ def get_courier_balance(provider_code: str = "steadfast") -> dict:
 
 
 @frappe.whitelist()
+def mark_manually_reconciled(delivery_order_name: str, payment_id: str | None = None) -> dict:
+	"""Manually mark a Delivery Order as payment reconciled."""
+	_check_permission("write")
+
+	do = frappe.get_doc("Delivery Order", delivery_order_name)
+	reconciled_id = payment_id or "MANUAL"
+
+	frappe.db.set_value(
+		"Delivery Order",
+		delivery_order_name,
+		{
+			"payment_reconciled": 1,
+			"reconciled_payment_id": reconciled_id,
+		},
+	)
+
+	_append_log(delivery_order_name, "reconciled", f"Payment marked as reconciled ({reconciled_id})")
+	frappe.db.commit()
+
+	return {"success": True, "reconciled_payment_id": reconciled_id}
+
+
+@frappe.whitelist()
+def get_dashboard_stats() -> dict:
+	"""Fetch summary metrics for dashboard cards with balance cached for 15 minutes."""
+	today_str = frappe.utils.today()
+
+	# 1. Today's Bookings
+	todays_bookings = frappe.db.count("Delivery Order", filters={"creation": [">=", today_str]})
+
+	# 2. Today Delivered
+	todays_delivered = frappe.db.count(
+		"Delivery Order",
+		filters={"delivery_status": "delivered", "last_synced_on": [">=", today_str]},
+	)
+
+	# 3. Today Cancelled
+	todays_cancelled = frappe.db.count(
+		"Delivery Order",
+		filters={"delivery_status": "cancelled", "last_synced_on": [">=", today_str]},
+	)
+
+	# 4. Account Balance (Cached 15 mins)
+	cache = frappe.cache()
+	cached_balance = cache.hget("delivery_system_dashboard", "balance")
+
+	if cached_balance is None:
+		try:
+			default_provider = frappe.db.get_single_value("Courier Settings", "default_provider")
+			provider_code = (
+				frappe.db.get_value("Courier Provider", default_provider, "provider_code")
+				if default_provider
+				else "steadfast"
+			)
+			client = get_client(provider_code)
+			bal_data = client.get_balance()
+			cached_balance = bal_data.get("current_balance") or bal_data.get("balance") or 0
+			cache.hset("delivery_system_dashboard", "balance", cached_balance)
+		except Exception:
+			cached_balance = 0
+
+	return {
+		"todays_bookings": todays_bookings,
+		"todays_delivered": todays_delivered,
+		"todays_cancelled": todays_cancelled,
+		"account_balance": cached_balance,
+	}
+
+
+@frappe.whitelist()
 def get_enabled_providers() -> list[dict]:
 	"""Return list of enabled Courier Provider records (for JS dropdowns)."""
 	return frappe.get_all(

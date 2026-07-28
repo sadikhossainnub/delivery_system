@@ -208,9 +208,18 @@ class Client(BaseCourierClient):
 		response = self._get("/get_return_requests")
 		return response.get("data") or response
 
-	def get_payments(self) -> list[dict]:
-		response = self._get("/payments")
-		return response.get("data") or response
+	def get_payments(self, date_from: str | None = None, date_to: str | None = None) -> list[dict]:
+		params = {}
+		if date_from:
+			params["start_date"] = date_from
+		if date_to:
+			params["end_date"] = date_to
+		response = self._get("/payments", params=params if params else None)
+		if isinstance(response, dict):
+			return response.get("data") or response.get("payments") or []
+		elif isinstance(response, list):
+			return response
+		return []
 
 	def get_payment(self, payment_id: str) -> dict:
 		return self._get(f"/payments/{payment_id}")

@@ -279,6 +279,26 @@ class TestSteadfastClient(unittest.TestCase):
 		)
 		self.assertEqual(payload["delivery_type"], "PD")
 
+	@patch("delivery_system.couriers.steadfast.requests.get")
+	def test_get_payments(self, mock_get):
+		from delivery_system.couriers.steadfast import Client
+
+		mock_response = MagicMock()
+		mock_response.ok = True
+		mock_response.json.return_value = {
+			"status": 200,
+			"data": [
+				{"consignment_id": "CID100", "payment_id": "PAY001", "amount": 1200},
+			],
+		}
+		mock_get.return_value = mock_response
+
+		c = self._make_client()
+		payments = c.get_payments(date_from="2026-07-01", date_to="2026-07-28")
+
+		self.assertEqual(len(payments), 1)
+		self.assertEqual(payments[0]["payment_id"], "PAY001")
+
 
 if __name__ == "__main__":
 	unittest.main()

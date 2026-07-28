@@ -26,6 +26,8 @@
   "consignment_id",
   "tracking_code",
   "column_break_courier",
+  "payment_reconciled",
+  "reconciled_payment_id",
   "section_raw",
   "raw_response",
   "section_logs",
@@ -163,6 +165,19 @@
   {
    "fieldname": "column_break_courier",
    "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "payment_reconciled",
+   "fieldtype": "Check",
+   "label": "Payment Reconciled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reconciled_payment_id",
+   "fieldtype": "Data",
+   "label": "Reconciled Payment ID",
+   "read_only": 1
   },
   {
    "collapsible": 1,

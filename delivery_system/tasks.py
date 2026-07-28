@@ -98,3 +98,22 @@ def sync_pending_deliveries():
 			"\n".join(errors),
 			"sync_pending_deliveries.errors",
 		)
+
+
+def notify_stuck_deliveries():
+	"""Daily job: find deliveries stuck for >= 3 days and log digest for ops team."""
+	from delivery_system.delivery_system.report.pending_stuck_deliveries.pending_stuck_deliveries import (
+		get_data,
+	)
+
+	stuck_orders = get_data({"min_days_pending": 3})
+	if not stuck_orders:
+		return
+
+	summary_msg = f"Delivery System Digest: {len(stuck_orders)} orders stuck for >= 3 days.\n\n"
+	for item in stuck_orders[:10]:
+		summary_msg += f"- {item['name']} ({item['customer']}): {item['days_pending']} days pending, Status: {item['delivery_status']}\n"
+
+	frappe.logger("delivery_system").info(summary_msg)
+	frappe.log_error(summary_msg, "notify_stuck_deliveries.digest")
+

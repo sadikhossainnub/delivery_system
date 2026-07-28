@@ -54,7 +54,10 @@ scheduler_events = {
 		"*/30 * * * *": [
 			"delivery_system.tasks.sync_pending_deliveries"
 		],
-	}
+	},
+	"daily": [
+		"delivery_system.tasks.notify_stuck_deliveries"
+	],
 }
 
 # ---------------------------------------------------------------------------
