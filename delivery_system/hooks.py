@@ -69,7 +69,12 @@ scheduler_events = {
 # Installation hooks
 # ---------------------------------------------------------------------------
 
-# after_install = "delivery_system.install.after_install"
+# Runs once when app is installed: creates Chart of Accounts, Mode of Payment,
+# and Courier Settings rows for every ERPNext company.
+after_install = "delivery_system.install.after_install"
+
+# Runs on every `bench migrate`: keeps accounting setup in sync for new companies.
+after_migrate = ["delivery_system.install.after_migrate"]
 
 # ---------------------------------------------------------------------------
 # Document Events
