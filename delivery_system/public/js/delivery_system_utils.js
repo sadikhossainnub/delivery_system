@@ -36,6 +36,18 @@ delivery_system.render_courier_badge = function (frm) {
 };
 
 /**
+ * Safe HTML stripper utility
+ */
+delivery_system.strip_html = function (str) {
+	if (!str) return "";
+	try {
+		return $("<div>").html(str).text().trim();
+	} catch (e) {
+		return String(str).replace(/<[^>]*>?/gm, "").trim();
+	}
+};
+
+/**
  * Opens a dialog to collect recipient details then calls send_to_courier.
  */
 delivery_system.show_send_dialog = function (frm, provider_code) {
@@ -66,7 +78,7 @@ delivery_system.show_send_dialog = function (frm, provider_code) {
 				fieldname: "recipient_address",
 				fieldtype: "Small Text",
 				label: __("Recipient Address"),
-				default: address_display ? frappe.utils.strip_html(address_display) : "",
+				default: address_display ? delivery_system.strip_html(address_display) : "",
 				reqd: 1,
 			},
 			{ fieldname: "col1", fieldtype: "Column Break" },
