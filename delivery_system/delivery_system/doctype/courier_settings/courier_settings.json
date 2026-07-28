@@ -8,6 +8,7 @@
   "booking_doctype",
   "auto_sync_status",
   "sync_interval_minutes",
+  "min_days_pending",
   "enable_accounting_automation",
   "variance_threshold_auto_post",
   "section_break_accounts",
@@ -39,6 +40,13 @@
    "fieldname": "sync_interval_minutes",
    "fieldtype": "Int",
    "label": "Sync Interval (Minutes)"
+  },
+  {
+   "default": "3",
+   "description": "Number of days after which an in-transit order is flagged as stuck",
+   "fieldname": "min_days_pending",
+   "fieldtype": "Int",
+   "label": "Stuck Threshold (Days)"
   },
   {
    "default": "1",
