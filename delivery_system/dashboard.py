@@ -12,8 +12,114 @@ from frappe.utils import today, get_first_day, get_last_day, add_months, add_day
 
 
 # ---------------------------------------------------------------------------
-# Number Card Methods
+# Number Card & Chart Methods
 # ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def sync_dashboard_charts():
+	"""Ensure standard Dashboard Chart records in database have correct configuration."""
+	charts = [
+		{
+			"name": "Daily Delivery Trend",
+			"chart_name": "Daily Delivery Trend",
+			"chart_type": "Count",
+			"document_type": "Delivery Order",
+			"based_on": "creation",
+			"time_interval": "Daily",
+			"timespan": "Last Month",
+			"type": "Line",
+			"timeseries": 1,
+			"show_values_over_chart": 1,
+			"filters_json": "[]",
+			"dynamic_filters_json": "[]",
+		},
+		{
+			"name": "Monthly COD Collection Trend",
+			"chart_name": "Monthly COD Collection Trend",
+			"chart_type": "Sum",
+			"document_type": "Courier Payout Log",
+			"based_on": "payout_date",
+			"value_based_on": "net_amount",
+			"time_interval": "Monthly",
+			"timespan": "Last Year",
+			"type": "Line",
+			"timeseries": 1,
+			"show_values_over_chart": 1,
+			"filters_json": "[]",
+			"dynamic_filters_json": "[]",
+		},
+		{
+			"name": "Monthly Delivery Charges Trend",
+			"chart_name": "Monthly Delivery Charges Trend",
+			"chart_type": "Sum",
+			"document_type": "Courier Payout Log",
+			"based_on": "payout_date",
+			"value_based_on": "delivery_charges_deducted",
+			"time_interval": "Monthly",
+			"timespan": "Last Year",
+			"type": "Bar",
+			"timeseries": 1,
+			"show_values_over_chart": 1,
+			"filters_json": "[]",
+			"dynamic_filters_json": "[]",
+		},
+		{
+			"name": "Delivery Status Breakdown",
+			"chart_name": "Delivery Status Breakdown",
+			"chart_type": "Group By",
+			"document_type": "Delivery Order",
+			"group_by_based_on": "delivery_status",
+			"group_by_type": "Count",
+			"type": "Donut",
+			"show_values_over_chart": 1,
+			"filters_json": "[]",
+			"dynamic_filters_json": "[]",
+		},
+	]
+
+	for c in charts:
+		name = c["name"]
+		if frappe.db.exists("Dashboard Chart", name):
+			# Clear invalid source link first via direct SQL
+			frappe.db.sql("""
+				UPDATE `tabDashboard Chart`
+				SET source = '', chart_type = %s, document_type = %s,
+					based_on = %s, value_based_on = %s,
+					time_interval = %s, timespan = %s,
+					`type` = %s, timeseries = %s,
+					show_values_over_chart = %s,
+					group_by_based_on = %s, group_by_type = %s,
+					filters_json = %s, dynamic_filters_json = %s
+				WHERE name = %s
+			""", (
+				c.get("chart_type", ""),
+				c.get("document_type", ""),
+				c.get("based_on", ""),
+				c.get("value_based_on", ""),
+				c.get("time_interval", ""),
+				c.get("timespan", ""),
+				c.get("type", ""),
+				c.get("timeseries", 0),
+				c.get("show_values_over_chart", 0),
+				c.get("group_by_based_on", ""),
+				c.get("group_by_type", "Count"),
+				c.get("filters_json", "[]"),
+				c.get("dynamic_filters_json", "[]"),
+				name,
+			))
+		else:
+			c["doctype"] = "Dashboard Chart"
+			c["module"] = "Delivery System"
+			c["is_standard"] = 1
+			c["is_public"] = 1
+			c["source"] = ""
+			doc = frappe.get_doc(c)
+			doc.insert(ignore_permissions=True)
+
+	frappe.db.commit()
+	return {"success": True, "message": "Dashboard Charts synced successfully!"}
+
 
 
 @frappe.whitelist()
