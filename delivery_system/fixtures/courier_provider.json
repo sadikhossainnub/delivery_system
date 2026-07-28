@@ -1,6 +1,7 @@
 [
  {
   "doctype": "Courier Provider",
+  "name": "Steadfast",
   "courier_name": "Steadfast",
   "provider_code": "steadfast",
   "enabled": 1,
