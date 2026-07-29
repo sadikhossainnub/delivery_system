@@ -47,6 +47,14 @@ delivery_system.strip_html = function (str) {
 	}
 };
 
+// Polyfill frappe.utils.strip_html if missing
+if (typeof frappe !== "undefined") {
+	frappe.utils = frappe.utils || {};
+	if (typeof frappe.utils.strip_html !== "function") {
+		frappe.utils.strip_html = delivery_system.strip_html;
+	}
+}
+
 /**
  * Opens a dialog to collect recipient details then calls send_to_courier.
  */
@@ -54,9 +62,14 @@ delivery_system.show_send_dialog = function (frm, provider_code) {
 	// Pre-fill from document where possible
 	const customer_name =
 		frm.doc.customer_name || frm.doc.customer || "";
+	const recipient_phone =
+		frm.doc.customer_mobile_no || frm.doc.mobile_no || "";
 	const address_display =
 		frm.doc.shipping_address || frm.doc.customer_address || "";
 	const cod = frm.doc.grand_total || frm.doc.rounded_total || 0;
+
+	const strip_func = delivery_system.strip_html || (frappe.utils && frappe.utils.strip_html) || function(s) { return s || ""; };
+	const address_text = address_display ? strip_func(address_display) : "";
 
 	const dialog = new frappe.ui.Dialog({
 		title: __("Send to Courier"),
@@ -72,13 +85,14 @@ delivery_system.show_send_dialog = function (frm, provider_code) {
 				fieldname: "recipient_phone",
 				fieldtype: "Data",
 				label: __("Recipient Phone (11-digit BD)"),
+				default: recipient_phone,
 				reqd: 1,
 			},
 			{
 				fieldname: "recipient_address",
 				fieldtype: "Small Text",
 				label: __("Recipient Address"),
-				default: address_display ? delivery_system.strip_html(address_display) : "",
+				default: address_text,
 				reqd: 1,
 			},
 			{ fieldname: "col1", fieldtype: "Column Break" },
@@ -87,6 +101,7 @@ delivery_system.show_send_dialog = function (frm, provider_code) {
 				fieldtype: "Currency",
 				label: __("COD Amount"),
 				default: cod,
+				read_only: 1,
 			},
 			{
 				fieldname: "delivery_type",

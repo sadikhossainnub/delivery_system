@@ -5,6 +5,10 @@
 // Mirrors the Sales Order script exactly.
 
 frappe.ui.form.on("Delivery Note", {
+	setup(frm) {
+		frm.add_fetch("customer", "mobile_no", "customer_mobile_no");
+	},
+
 	refresh(frm) {
 		if (frm.doc.docstatus !== 1) return;
 

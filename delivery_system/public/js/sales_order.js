@@ -4,6 +4,10 @@
 // Client script for the Sales Order form — courier integration buttons.
 
 frappe.ui.form.on("Sales Order", {
+	setup(frm) {
+		frm.add_fetch("customer", "mobile_no", "customer_mobile_no");
+	},
+
 	refresh(frm) {
 		// Only act on submitted Sales Orders
 		if (frm.doc.docstatus !== 1) return;
