@@ -33,9 +33,17 @@ class CourierSettings(Document):
 				continue
 			if company and account.company != company:
 				continue
+			secret_val = None
+			try:
+				secret_val = account.get_password("secret_key")
+			except Exception:
+				pass
+			if not secret_val:
+				secret_val = account.secret_key
+
 			return {
 				"api_key": account.api_key,
-				"secret_key": account.get_password("secret_key"),
+				"secret_key": secret_val,
 				"webhook_secret": account.webhook_secret or None,
 				"webhook_url": account.webhook_url or None,
 				"base_url": provider.base_url,

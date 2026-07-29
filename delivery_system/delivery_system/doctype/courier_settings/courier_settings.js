@@ -39,14 +39,13 @@ frappe.ui.form.on("Courier Settings", {
 });
 
 frappe.ui.form.on("Courier Account", {
-	form_render(frm, cdt, cdn) {
+	courier_accounts_add(frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
 		if (!row.webhook_secret) {
-			row.webhook_secret = frappe.utils.get_random(32);
+			frappe.model.set_value(cdt, cdn, "webhook_secret", frappe.utils.get_random(32));
 		}
 		if (!row.webhook_url) {
-			row.webhook_url = window.location.origin + "/api/method/delivery_system.webhook.steadfast_webhook";
+			frappe.model.set_value(cdt, cdn, "webhook_url", window.location.origin + "/api/method/delivery_system.webhook.steadfast_webhook");
 		}
-		frm.refresh_field("courier_accounts");
 	}
 });
