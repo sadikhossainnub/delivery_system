@@ -80,11 +80,14 @@ after_migrate = ["delivery_system.install.after_migrate"]
 # Document Events
 # ---------------------------------------------------------------------------
 
-# doc_events = {
-# 	"Sales Order": {
-# 		"on_submit": "delivery_system.doc_events.sales_order.on_submit",
-# 	},
-# }
+doc_events = {
+	"Sales Order": {
+		"on_cancel": "delivery_system.doc_events.cancel_linked_delivery_orders",
+	},
+	"Delivery Note": {
+		"on_cancel": "delivery_system.doc_events.cancel_linked_delivery_orders",
+	},
+}
 
 # ---------------------------------------------------------------------------
 # Request Events
@@ -294,9 +297,8 @@ default_log_clearing_doctypes = {
 # 	"Task": "delivery_system.task.get_dashboard_data"
 # }
 
-# exempt linked doctypes from being automatically cancelled
-#
-# auto_cancel_exempted_doctypes = ["Auto Repeat"]
+# Delivery Order is exempt so that cancelling it does not block the parent SO/DN
+auto_cancel_exempted_doctypes = ["Delivery Order"]
 
 # Ignore links to specified DocTypes when deleting documents
 # -----------------------------------------------------------
