@@ -5,6 +5,13 @@
 
 frappe.ui.form.on("Delivery Order", {
 	refresh(frm) {
+		// Show Send to Courier button on draft docs
+		if (frm.doc.docstatus === 0 && !frm.doc.consignment_id) {
+			frm.add_custom_button(__("Send to Courier"), () => {
+				frm.savesubmit();
+			}).addClass("btn-primary");
+		}
+
 		// Show courier action buttons on submitted docs
 		if (frm.doc.docstatus === 1) {
 			_add_refresh_status_btn(frm);
@@ -16,6 +23,28 @@ frappe.ui.form.on("Delivery Order", {
 
 		// Colour-code the delivery_status indicator
 		_render_status_indicator(frm);
+	},
+
+	reference_name(frm) {
+		if (frm.doc.reference_doctype && frm.doc.reference_name) {
+			frappe.db.get_doc(frm.doc.reference_doctype, frm.doc.reference_name).then((ref_doc) => {
+				if (!frm.doc.recipient_name) {
+					frm.set_value("recipient_name", ref_doc.customer_name || ref_doc.customer || "");
+				}
+				if (!frm.doc.recipient_phone) {
+					const phone = ref_doc.customer_mobile_no || ref_doc.contact_mobile || ref_doc.mobile_no || "";
+					if (phone) frm.set_value("recipient_phone", phone);
+				}
+				if (!frm.doc.recipient_address) {
+					const addr = ref_doc.shipping_address || ref_doc.customer_address || "";
+					const strip_func = (window.delivery_system && window.delivery_system.strip_html) || (frappe.utils && frappe.utils.strip_html) || function(s){ return s || ""; };
+					if (addr) frm.set_value("recipient_address", strip_func(addr));
+				}
+				if (!frm.doc.cod_amount) {
+					frm.set_value("cod_amount", ref_doc.grand_total || ref_doc.rounded_total || 0);
+				}
+			});
+		}
 	},
 });
 

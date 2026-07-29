@@ -33,12 +33,56 @@ class DeliveryOrder(Document):
 
 	def before_submit(self):
 		if not self.consignment_id:
-			frappe.throw(
-				_(
-					"Cannot submit Delivery Order without a Consignment ID. "
-					"Please click 'Send to Courier' first."
-				)
-			)
+			self.book_with_courier()
+
+	def book_with_courier(self):
+		"""Call courier API to create order and assign consignment_id."""
+		if self.consignment_id:
+			return
+
+		if not self.courier_provider:
+			frappe.throw(_("Please select a Courier Provider."))
+
+		provider_code = frappe.db.get_value("Courier Provider", self.courier_provider, "provider_code")
+		if not provider_code:
+			frappe.throw(_("Invalid Courier Provider selected."))
+
+		company = None
+		if self.reference_doctype and self.reference_name:
+			company = frappe.db.get_value(self.reference_doctype, self.reference_name, "company")
+
+		from delivery_system.couriers import get_client
+		import json
+
+		client = get_client(provider_code, company)
+		result = client.create_order(
+			{
+				"invoice": self.invoice_reference or self.name,
+				"recipient_name": self.recipient_name,
+				"recipient_phone": self.recipient_phone,
+				"recipient_address": self.recipient_address,
+				"cod_amount": float(self.cod_amount or 0),
+				"note": self.note or "",
+				"delivery_type": self.delivery_type or "Home Delivery",
+			}
+		)
+
+		self.consignment_id = result.get("consignment_id") or ""
+		self.tracking_code = result.get("tracking_code") or ""
+		self.delivery_status = result.get("status") or "pending"
+		self.last_synced_on = now_datetime()
+		self.raw_response = json.dumps(result.get("raw") or result, ensure_ascii=False)[:5000]
+
+		self.append(
+			"delivery_logs",
+			{
+				"status": self.delivery_status,
+				"message": f"Booked with courier ({provider_code})",
+				"logged_at": now_datetime(),
+			},
+		)
+
+		self._update_reference_status(self.delivery_status)
 
 	def on_cancel(self):
 		"""Update linked SO/DN custom field on cancel."""

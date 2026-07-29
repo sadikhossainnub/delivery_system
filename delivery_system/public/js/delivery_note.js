@@ -9,6 +9,12 @@ frappe.ui.form.on("Delivery Note", {
 		frm.add_fetch("customer", "mobile_no", "customer_mobile_no");
 	},
 
+	customer(frm) {
+		if (delivery_system.get_customer_phone) {
+			delivery_system.get_customer_phone(frm);
+		}
+	},
+
 	refresh(frm) {
 		if (frm.doc.docstatus !== 1) return;
 

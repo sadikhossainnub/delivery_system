@@ -8,6 +8,12 @@ frappe.ui.form.on("Sales Order", {
 		frm.add_fetch("customer", "mobile_no", "customer_mobile_no");
 	},
 
+	customer(frm) {
+		if (delivery_system.get_customer_phone) {
+			delivery_system.get_customer_phone(frm);
+		}
+	},
+
 	refresh(frm) {
 		// Only act on submitted Sales Orders
 		if (frm.doc.docstatus !== 1) return;

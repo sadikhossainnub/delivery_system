@@ -56,101 +56,79 @@ if (typeof frappe !== "undefined") {
 }
 
 /**
- * Opens a dialog to collect recipient details then calls send_to_courier.
+ * Robustly fetches customer's mobile number from doc or database (Customer/Contact)
  */
-delivery_system.show_send_dialog = function (frm, provider_code) {
-	// Pre-fill from document where possible
-	const customer_name =
-		frm.doc.customer_name || frm.doc.customer || "";
-	const recipient_phone =
-		frm.doc.customer_mobile_no || frm.doc.mobile_no || "";
-	const address_display =
-		frm.doc.shipping_address || frm.doc.customer_address || "";
-	const cod = frm.doc.grand_total || frm.doc.rounded_total || 0;
+delivery_system.get_customer_phone = function (frm, callback) {
+	let phone = frm.doc.customer_mobile_no || frm.doc.contact_mobile || frm.doc.mobile_no || "";
+	if (phone) {
+		if (callback) callback(phone);
+		return;
+	}
+	if (!frm.doc.customer) {
+		if (callback) callback("");
+		return;
+	}
 
-	const strip_func = delivery_system.strip_html || (frappe.utils && frappe.utils.strip_html) || function(s) { return s || ""; };
-	const address_text = address_display ? strip_func(address_display) : "";
-
-	const dialog = new frappe.ui.Dialog({
-		title: __("Send to Courier"),
-		fields: [
-			{
-				fieldname: "recipient_name",
-				fieldtype: "Data",
-				label: __("Recipient Name"),
-				default: customer_name,
-				reqd: 1,
-			},
-			{
-				fieldname: "recipient_phone",
-				fieldtype: "Data",
-				label: __("Recipient Phone (11-digit BD)"),
-				default: recipient_phone,
-				reqd: 1,
-			},
-			{
-				fieldname: "recipient_address",
-				fieldtype: "Small Text",
-				label: __("Recipient Address"),
-				default: address_text,
-				reqd: 1,
-			},
-			{ fieldname: "col1", fieldtype: "Column Break" },
-			{
-				fieldname: "cod_amount",
-				fieldtype: "Currency",
-				label: __("COD Amount"),
-				default: cod,
-				read_only: 1,
-			},
-			{
-				fieldname: "delivery_type",
-				fieldtype: "Select",
-				label: __("Delivery Type"),
-				options: "Home Delivery\nPoint Delivery",
-				default: "Home Delivery",
-			},
-			{
-				fieldname: "note",
-				fieldtype: "Small Text",
-				label: __("Note"),
-			},
-		],
-		primary_action_label: __("Book Courier"),
-		primary_action({ recipient_name, recipient_phone, recipient_address, cod_amount, delivery_type, note }) {
-			dialog.hide();
-			frappe.show_progress(__("Booking with courier..."), 50, 100);
-			frappe.call({
-				method: "delivery_system.api.send_to_courier",
-				args: {
-					reference_doctype: frm.doc.doctype,
-					reference_name: frm.doc.name,
-					provider_code,
-					recipient_name,
-					recipient_phone,
-					recipient_address,
-					cod_amount,
-					delivery_type,
-					note,
-				},
-				callback(r) {
-					frappe.hide_progress();
-					if (r.message) {
-						frappe.show_alert({
-							message: __("Booked! Consignment ID: {0}", [r.message.consignment_id || "N/A"]),
-							indicator: "green",
-						}, 8);
-						frm.reload_doc();
-					}
-				},
-				error() {
-					frappe.hide_progress();
-				},
+	frappe.db.get_value("Customer", frm.doc.customer, ["mobile_no", "customer_primary_contact"], (r) => {
+		if (r && r.mobile_no) {
+			if (frm.fields_dict && frm.fields_dict["customer_mobile_no"]) {
+				frm.set_value("customer_mobile_no", r.mobile_no);
+			}
+			if (callback) callback(r.mobile_no);
+		} else if (r && r.customer_primary_contact) {
+			frappe.db.get_value("Contact", r.customer_primary_contact, ["mobile_no", "phone"], (c) => {
+				const p = (c && (c.mobile_no || c.phone)) || "";
+				if (p && frm.fields_dict && frm.fields_dict["customer_mobile_no"]) {
+					frm.set_value("customer_mobile_no", p);
+				}
+				if (callback) callback(p);
 			});
-		},
+		} else {
+			if (callback) callback("");
+		}
 	});
-	dialog.show();
 };
+
+/**
+ * Opens a new Delivery Order DocType form pre-populated with reference details.
+ */
+delivery_system.open_delivery_order = function (frm, provider_code) {
+	delivery_system.get_customer_phone(frm, function (recipient_phone) {
+		const customer_name =
+			frm.doc.customer_name || frm.doc.customer || "";
+		const address_display =
+			frm.doc.shipping_address || frm.doc.customer_address || "";
+		const cod = frm.doc.grand_total || frm.doc.rounded_total || 0;
+
+		const strip_func = delivery_system.strip_html || (frappe.utils && frappe.utils.strip_html) || function(s) { return s || ""; };
+		const address_text = address_display ? strip_func(address_display) : "";
+
+		const route_options = {
+			reference_doctype: frm.doc.doctype,
+			reference_name: frm.doc.name,
+			recipient_name: customer_name,
+			recipient_phone: recipient_phone,
+			recipient_address: address_text,
+			cod_amount: cod,
+			delivery_type: "Home Delivery",
+		};
+
+		if (provider_code) {
+			frappe.db.get_value("Courier Provider", { provider_code: provider_code, enabled: 1 }, "name", (r) => {
+				if (r && r.name) {
+					route_options.courier_provider = r.name;
+				}
+				frappe.route_options = route_options;
+				frappe.new_doc("Delivery Order");
+			});
+		} else {
+			frappe.route_options = route_options;
+			frappe.new_doc("Delivery Order");
+		}
+	});
+};
+
+delivery_system.show_send_dialog = delivery_system.open_delivery_order;
 
 /**
  * Add "Send to Courier" button with provider picker if allowed by Courier Settings.
@@ -171,7 +149,7 @@ delivery_system.add_send_button = function (frm) {
 
 			if (providers.length === 1) {
 				frm.add_custom_button(__("Send to Courier"), () => {
-					delivery_system.show_send_dialog(frm, providers[0].provider_code);
+					delivery_system.open_delivery_order(frm, providers[0].provider_code);
 				}).addClass("btn-primary");
 			} else {
 				// Multiple providers — add a dropdown
@@ -182,7 +160,7 @@ delivery_system.add_send_button = function (frm) {
 					menu.append(
 						$("<li>").append(
 							$("<a>").text(p.courier_name).click(() => {
-								delivery_system.show_send_dialog(frm, p.provider_code);
+								delivery_system.open_delivery_order(frm, p.provider_code);
 							})
 						)
 					);
