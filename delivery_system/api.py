@@ -190,6 +190,21 @@ def get_courier_balance(provider_code: str = "steadfast") -> dict:
 
 
 @frappe.whitelist()
+def test_courier_connection(provider_code: str = "steadfast") -> dict:
+	"""Test API connection with the courier by fetching balance."""
+	if not frappe.has_permission("Courier Settings", "read"):
+		frappe.throw(_("Insufficient permission."), frappe.PermissionError)
+
+	try:
+		client = get_client(provider_code)
+		bal = client.get_balance()
+		current_balance = bal.get("current_balance") if "current_balance" in bal else bal.get("balance", 0)
+		return {"success": True, "balance": current_balance}
+	except Exception as exc:
+		return {"success": False, "error": str(exc)}
+
+
+@frappe.whitelist()
 def mark_manually_reconciled(delivery_order_name: str, payment_id: str | None = None) -> dict:
 	"""Manually mark a Delivery Order as payment reconciled."""
 	_check_permission("write")
