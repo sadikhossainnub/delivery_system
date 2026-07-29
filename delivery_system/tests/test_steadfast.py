@@ -262,7 +262,7 @@ class TestSteadfastClient(unittest.TestCase):
 				"delivery_type": "Home Delivery",
 			}
 		)
-		self.assertEqual(payload["delivery_type"], "HD")
+		self.assertEqual(payload["delivery_type"], 0)  # Steadfast API: 0 = Home Delivery
 
 	def test_delivery_type_point_mapping(self):
 		from delivery_system.couriers.steadfast import Client
@@ -277,7 +277,7 @@ class TestSteadfastClient(unittest.TestCase):
 				"delivery_type": "Point Delivery",
 			}
 		)
-		self.assertEqual(payload["delivery_type"], "PD")
+		self.assertEqual(payload["delivery_type"], 1)  # Steadfast API: 1 = Point Delivery
 
 	@patch("delivery_system.couriers.steadfast.requests.get")
 	def test_get_payments(self, mock_get):

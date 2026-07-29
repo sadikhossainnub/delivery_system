@@ -30,14 +30,18 @@ import requests
 
 from delivery_system.couriers import BaseCourierClient
 
-# Steadfast delivery type constants
-DELIVERY_TYPE_HOME = "HD"
-DELIVERY_TYPE_POINT = "PD"
+# Steadfast delivery type constants (API expects numeric 0/1)
+DELIVERY_TYPE_HOME = 0   # Home Delivery
+DELIVERY_TYPE_POINT = 1  # Point Delivery / Steadfast Hub Pick Up
 
-# Map our internal delivery_type values → Steadfast values
+# Map our internal delivery_type values → Steadfast numeric values
 DELIVERY_TYPE_MAP = {
 	"Home Delivery": DELIVERY_TYPE_HOME,
 	"Point Delivery": DELIVERY_TYPE_POINT,
+	"HD": DELIVERY_TYPE_HOME,
+	"PD": DELIVERY_TYPE_POINT,
+	"0": DELIVERY_TYPE_HOME,
+	"1": DELIVERY_TYPE_POINT,
 }
 
 _REQUEST_TIMEOUT = 30  # seconds
@@ -115,16 +119,17 @@ class Client(BaseCourierClient):
 	def _build_order_payload(order_data: dict) -> dict:
 		"""Convert our internal order_data dict to Steadfast payload format."""
 		delivery_type_raw = order_data.get("delivery_type", "Home Delivery")
-		delivery_type = DELIVERY_TYPE_MAP.get(delivery_type_raw, DELIVERY_TYPE_HOME)
+		# API expects numeric: 0 = Home Delivery, 1 = Point Delivery
+		delivery_type = DELIVERY_TYPE_MAP.get(str(delivery_type_raw), DELIVERY_TYPE_HOME)
 
 		payload = {
-			"invoice": order_data["invoice"],
-			"recipient_name": order_data["recipient_name"],
-			"recipient_phone": order_data["recipient_phone"],
-			"recipient_address": (order_data.get("recipient_address") or "")[:250],
-			"cod_amount": order_data.get("cod_amount", 0),
-			"note": order_data.get("note", ""),
-			"delivery_type": delivery_type,
+			"invoice": str(order_data["invoice"])[:50],           # unique, alphanumeric + hyphens/underscores
+			"recipient_name": (order_data["recipient_name"] or "")[:100],    # max 100 chars
+			"recipient_phone": str(order_data["recipient_phone"]).strip(),    # 11 digits
+			"recipient_address": (order_data.get("recipient_address") or "")[:250],  # max 250 chars
+			"cod_amount": float(order_data.get("cod_amount") or 0),          # numeric >= 0
+			"note": (order_data.get("note") or "")[:500],
+			"delivery_type": delivery_type,                                   # 0 or 1 (numeric)
 		}
 		return payload
 
