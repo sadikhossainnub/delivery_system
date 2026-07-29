@@ -42,6 +42,61 @@ def _get_company_from_reference(reference_doctype: str, reference_name: str) -> 
 		return None
 
 
+def calculate_cod_amount(ref_doc) -> float:
+	"""Calculate the Cash On Delivery (COD) amount for a Sales Order or Delivery Note.
+
+	If customer has already paid in advance (fully or partially), COD amount is adjusted
+	so the courier only collects the remaining unpaid balance.
+	If fully paid in advance, COD amount is 0.
+	"""
+	if not ref_doc:
+		return 0.0
+
+	# 1. If marked as paid via boolean flag or payment status / order status
+	if ref_doc.get("is_paid"):
+		return 0.0
+
+	payment_status = str(ref_doc.get("payment_status") or "").strip().lower()
+	if payment_status in ("paid", "fully paid", "completed"):
+		return 0.0
+
+	doc_status = str(ref_doc.get("status") or "").strip().lower()
+	if doc_status == "paid":
+		return 0.0
+
+	per_paid = frappe.utils.flt(ref_doc.get("per_paid"))
+	if per_paid >= 100.0:
+		return 0.0
+
+	total_amount = frappe.utils.flt(ref_doc.get("rounded_total") or ref_doc.get("grand_total") or 0.0)
+
+	# 2. Check direct outstanding_amount if present on the doc
+	if ref_doc.get("outstanding_amount") is not None and ref_doc.get("outstanding_amount") != "":
+		return max(0.0, frappe.utils.flt(ref_doc.get("outstanding_amount")))
+
+	# 3. Advance paid or paid amount on the doc
+	advance_paid = frappe.utils.flt(ref_doc.get("advance_paid") or 0.0)
+	paid_amount = frappe.utils.flt(ref_doc.get("paid_amount") or 0.0)
+
+	# If Delivery Note has no advance_paid directly, check linked Sales Order
+	if not advance_paid and getattr(ref_doc, "doctype", "") == "Delivery Note":
+		so_name = ref_doc.get("against_sales_order") or ref_doc.get("sales_order")
+		if not so_name and ref_doc.get("items"):
+			so_name = ref_doc.items[0].get("against_sales_order") or ref_doc.items[0].get("sales_order")
+		if so_name and frappe.db.exists("Sales Order", so_name):
+			so_doc = frappe.get_doc("Sales Order", so_name)
+			if so_doc.get("is_paid") or str(so_doc.get("payment_status") or "").lower() in ("paid", "fully paid", "completed"):
+				return 0.0
+			advance_paid = frappe.utils.flt(so_doc.get("advance_paid") or 0.0)
+			if so_doc.get("outstanding_amount") is not None and so_doc.get("outstanding_amount") != "":
+				return max(0.0, frappe.utils.flt(so_doc.get("outstanding_amount")))
+
+	total_paid = max(advance_paid, paid_amount)
+	cod = total_amount - total_paid
+
+	return max(0.0, float(cod))
+
+
 @frappe.whitelist()
 def send_to_courier(
 	reference_doctype: str,
@@ -50,7 +105,7 @@ def send_to_courier(
 	recipient_name: str | None = None,
 	recipient_phone: str | None = None,
 	recipient_address: str | None = None,
-	cod_amount: float = 0,
+	cod_amount: float | str | None = None,
 	delivery_type: str = "Home Delivery",
 	note: str = "",
 ) -> dict:
@@ -334,7 +389,7 @@ def _do_send_to_courier(
 	recipient_name: str | None = None,
 	recipient_phone: str | None = None,
 	recipient_address: str | None = None,
-	cod_amount: float = 0,
+	cod_amount: float | str | None = None,
 	delivery_type: str = "Home Delivery",
 	note: str = "",
 ) -> dict:
@@ -375,6 +430,25 @@ def _do_send_to_courier(
 		frappe.throw(_("No courier provider specified or configured as default."), frappe.ValidationError)
 
 	company = _get_company_from_reference(reference_doctype, reference_name)
+
+	ref_doc = None
+	if reference_doctype and reference_name and frappe.db.exists(reference_doctype, reference_name):
+		ref_doc = frappe.get_doc(reference_doctype, reference_name)
+
+	if ref_doc:
+		if not recipient_name:
+			recipient_name = ref_doc.get("customer_name") or ref_doc.get("customer") or ""
+		if not recipient_phone:
+			recipient_phone = ref_doc.get("customer_mobile_no") or ref_doc.get("contact_mobile") or ref_doc.get("mobile_no") or ""
+		if not recipient_address:
+			raw_addr = ref_doc.get("shipping_address") or ref_doc.get("customer_address") or ""
+			import re
+			recipient_address = re.sub(r"<[^>]*>", "", str(raw_addr)).strip() if raw_addr else ""
+
+	if cod_amount is None:
+		cod_amount = calculate_cod_amount(ref_doc) if ref_doc else 0.0
+	else:
+		cod_amount = float(cod_amount)
 
 	do = frappe.get_doc(
 		{

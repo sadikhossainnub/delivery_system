@@ -38,6 +38,12 @@ class DeliveryOrder(Document):
 			# Name isn't set yet at before_insert; generate a deterministic ref
 			self.invoice_reference = frappe.generate_hash(length=16)
 
+		if self.cod_amount is None and self.reference_doctype and self.reference_name:
+			if frappe.db.exists(self.reference_doctype, self.reference_name):
+				from delivery_system.api import calculate_cod_amount
+				ref_doc = frappe.get_doc(self.reference_doctype, self.reference_name)
+				self.cod_amount = calculate_cod_amount(ref_doc)
+
 	def validate(self):
 		self._validate_phone()
 		self._truncate_address()

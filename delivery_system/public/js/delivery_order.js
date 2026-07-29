@@ -40,8 +40,11 @@ frappe.ui.form.on("Delivery Order", {
 					const strip_func = (window.delivery_system && window.delivery_system.strip_html) || (frappe.utils && frappe.utils.strip_html) || function(s){ return s || ""; };
 					if (addr) frm.set_value("recipient_address", strip_func(addr));
 				}
-				if (!frm.doc.cod_amount) {
-					frm.set_value("cod_amount", ref_doc.grand_total || ref_doc.rounded_total || 0);
+				if (frm.doc.cod_amount === undefined || frm.doc.cod_amount === null || frm.doc.cod_amount === "") {
+					const cod = (window.delivery_system && window.delivery_system.get_cod_amount)
+						? window.delivery_system.get_cod_amount(ref_doc)
+						: (ref_doc.grand_total || ref_doc.rounded_total || 0);
+					frm.set_value("cod_amount", cod);
 				}
 			});
 		}
