@@ -13,6 +13,7 @@ TERMINAL_STATUSES = {"delivered", "cancelled", "partial_delivered"}
 VALID_STATUSES = {
 	"", "pending", "in_review", "delivered_approval_pending",
 	"partial_delivered_approval_pending", "cancelled_approval_pending",
+	"unknown_approval_pending",
 	"delivered", "partial_delivered", "cancelled", "hold", "unknown",
 }
 BD_PHONE_REGEX = re.compile(r"^01[3-9]\d{8}$")
@@ -80,6 +81,7 @@ class DeliveryOrder(Document):
 
 		self.consignment_id = result.get("consignment_id") or ""
 		self.tracking_code = result.get("tracking_code") or ""
+		self.tracking_url = self.get_tracking_url()
 		self.delivery_status = _sanitize_status(result.get("status"), "pending")
 		self.last_synced_on = now_datetime()
 		self.raw_response = json.dumps(result.get("raw") or result, ensure_ascii=False)[:5000]
@@ -94,6 +96,23 @@ class DeliveryOrder(Document):
 		)
 
 		self._update_reference_status(self.delivery_status)
+
+	def get_tracking_url(self) -> str:
+		"""Return tracking URL based on courier_provider and tracking_code/consignment_id."""
+		code = self.tracking_code or self.consignment_id
+		if not code:
+			return getattr(self, "tracking_url", "") or ""
+		provider_code = ""
+		if self.courier_provider:
+			provider_code = frappe.db.get_value("Courier Provider", self.courier_provider, "provider_code") or ""
+
+		if provider_code == "steadfast" or not provider_code:
+			return f"https://steadfast.com.bd/t/{code}"
+		elif provider_code == "pathao":
+			return f"https://pathao.com/tracking/?consignment_id={code}"
+		elif provider_code == "redx":
+			return f"https://redx.com.bd/track-order?trackingId={code}"
+		return f"https://steadfast.com.bd/t/{code}"
 
 	def on_cancel(self):
 		"""Update linked SO/DN custom field on cancel."""
@@ -165,7 +184,7 @@ class DeliveryOrder(Document):
 			frappe.log_error(frappe.get_traceback(), "DeliveryOrder.update_status.accounting")
 
 	def _update_reference_status(self, status: str):
-		"""Push delivery_status to the custom field on linked Sales Order / Delivery Note."""
+		"""Push delivery_status and tracking_url to the custom field on linked Sales Order / Delivery Note."""
 		if not (self.reference_doctype and self.reference_name):
 			return
 		try:
@@ -175,6 +194,7 @@ class DeliveryOrder(Document):
 				{
 					"courier_status": status,
 					"delivery_order_ref": self.name,
+					"tracking_url": self.get_tracking_url(),
 				},
 			)
 		except Exception:

@@ -37,14 +37,7 @@ frappe.listview_settings["Sales Order"].onload = function (listview) {
 							callback(r) {
 								frappe.hide_progress();
 								if (r.message) {
-									const results = r.message;
-									const succeeded = results.filter(x => x.success).length;
-									const failed = results.filter(x => !x.success).length;
-									frappe.msgprint({
-										title: __("Bulk Send Results"),
-										message: __("{0} succeeded, {1} failed.", [succeeded, failed]),
-										indicator: failed ? "orange" : "green",
-									});
+									delivery_system.show_bulk_send_results(r.message);
 									listview.refresh();
 								}
 							},

@@ -92,7 +92,7 @@ class Client(BaseCourierClient):
 		return self._handle_response(resp)
 
 	@staticmethod
-	def _handle_response(resp: requests.Response) -> dict:
+	def _handle_response(resp: requests.Response) -> dict | list:
 		"""Parse response and raise ValidationError on non-2xx."""
 		try:
 			data = resp.json()
@@ -100,12 +100,17 @@ class Client(BaseCourierClient):
 			data = {"message": resp.text or "Unknown error"}
 
 		if not resp.ok:
-			error_msg = (
-				data.get("message")
-				or data.get("error")
-				or data.get("errors")
-				or f"HTTP {resp.status_code}"
-			)
+			error_msg = f"HTTP {resp.status_code}"
+			if isinstance(data, dict):
+				error_msg = (
+					data.get("message")
+					or data.get("error")
+					or data.get("errors")
+					or error_msg
+				)
+			elif isinstance(data, list):
+				error_msg = str(data)
+
 			if isinstance(error_msg, (dict, list)):
 				error_msg = json.dumps(error_msg)
 			frappe.throw(
@@ -138,24 +143,15 @@ class Client(BaseCourierClient):
 	# ------------------------------------------------------------------
 
 	def create_order(self, order_data: dict) -> dict:
-		"""Book a single consignment with Steadfast.
-
-		Args:
-			order_data: Must contain: invoice, recipient_name, recipient_phone,
-				recipient_address, cod_amount. Optional: note, delivery_type.
-
-		Returns:
-			Dict with consignment_id, tracking_code, status (and full raw response).
-		"""
+		"""Book a single consignment with Steadfast."""
 		payload = self._build_order_payload(order_data)
 		response = self._post("/create_order", payload)
-		return self._normalise_single(response)
+		if isinstance(response, list) and response:
+			return self._normalise_single(response[0])
+		return self._normalise_single(response if isinstance(response, dict) else {})
 
 	def bulk_create(self, orders: list[dict]) -> list[dict]:
-		"""Book up to 500 consignments in one API call.
-
-		Steadfast returns results keyed by invoice number.
-		"""
+		"""Book up to 500 consignments in one API call."""
 		if not orders:
 			return []
 		if len(orders) > 500:
@@ -169,11 +165,17 @@ class Client(BaseCourierClient):
 		payload = {"data": [self._build_order_payload(o) for o in orders]}
 		response = self._post("/create_order/bulk-order", payload)
 
-		# Steadfast returns {"status": 200, "message": "...", "data": [...]}
-		raw_list = response.get("data") or []
+		if isinstance(response, list):
+			raw_list = response
+		elif isinstance(response, dict):
+			raw_list = response.get("data") or response.get("orders") or [response]
+		else:
+			raw_list = []
+
 		results = []
 		for item in raw_list:
-			results.append(self._normalise_single(item))
+			if isinstance(item, dict):
+				results.append(self._normalise_single(item))
 		return results
 
 	def get_status(

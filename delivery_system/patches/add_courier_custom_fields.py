@@ -48,6 +48,17 @@ def execute():
 			"print_hide": 1,
 			"in_list_view": 0,
 		},
+		{
+			"fieldname": "tracking_url",
+			"fieldtype": "Data",
+			"options": "URL",
+			"label": "Tracking Link",
+			"insert_after": "courier_status",
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+			"in_list_view": 1,
+		},
 	]
 
 	custom_fields = {

@@ -197,3 +197,66 @@ delivery_system.add_tracking_buttons = function (frm) {
 		});
 	}, __("Courier"));
 };
+
+/**
+ * Display a detailed popup with success/failed summary and exact error messages for each document.
+ */
+delivery_system.show_bulk_send_results = function (results) {
+	if (!results || !results.length) return;
+
+	const succeeded = results.filter((x) => x.success);
+	const failed = results.filter((x) => !x.success);
+
+	let html = `<div style="max-height: 420px; overflow-y: auto;">`;
+	html += `<p style="font-size: 14px; font-weight: bold; margin-bottom: 12px;">` +
+		__("Summary: {0} Succeeded, {1} Failed", [succeeded.length, failed.length]) +
+		`</p>`;
+
+	if (failed.length) {
+		html += `<div style="margin-top: 10px; margin-bottom: 15px;">`;
+		html += `<h5 style="color: #e74c3c; font-weight: bold; margin-bottom: 8px;">` +
+			__("Failed Orders & Error Reasons:") +
+			`</h5>`;
+		html += `<table class="table table-bordered style="font-size: 13px; margin-bottom: 0;">
+			<thead>
+				<tr style="background-color: #fce8e6;">
+					<th style="width: 35%;">Document Name</th>
+					<th style="width: 65%;">Error Reason</th>
+				</tr>
+			</thead>
+			<tbody>`;
+		failed.forEach((item) => {
+			const ref = frappe.utils.escape_html(item.reference || item.name || "");
+			const err = frappe.utils.escape_html(item.error || __("Unknown error"));
+			html += `<tr>
+				<td><strong>${ref}</strong></td>
+				<td style="color: #c0392b; font-weight: 500;">${err}</td>
+			</tr>`;
+		});
+		html += `</tbody></table></div>`;
+	}
+
+	if (succeeded.length) {
+		html += `<div style="margin-top: 10px;">`;
+		html += `<h5 style="color: #27ae60; font-weight: bold; margin-bottom: 8px;">` +
+			__("Succeeded Orders:") +
+			`</h5>`;
+		html += `<ul style="margin-left: 20px; color: #27ae60;">`;
+		succeeded.forEach((item) => {
+			const ref = frappe.utils.escape_html(item.reference || item.name || "");
+			const do_ref = item.delivery_order ? ` → (${frappe.utils.escape_html(item.delivery_order)})` : "";
+			html += `<li><strong>${ref}</strong> ${do_ref}</li>`;
+		});
+		html += `</ul></div>`;
+	}
+
+	html += `</div>`;
+
+	frappe.msgprint({
+		title: __("Bulk Courier Booking Results"),
+		message: html,
+		indicator: failed.length ? (succeeded.length ? "orange" : "red") : "green",
+		wide: true,
+	});
+};
+

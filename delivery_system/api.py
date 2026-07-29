@@ -17,6 +17,7 @@ from delivery_system.couriers import get_client
 VALID_STATUSES = {
 	"", "pending", "in_review", "delivered_approval_pending",
 	"partial_delivered_approval_pending", "cancelled_approval_pending",
+	"unknown_approval_pending",
 	"delivered", "partial_delivered", "cancelled", "hold", "unknown",
 }
 
@@ -425,12 +426,18 @@ def _do_send_to_courier(
 	raw_status = result.get("status") or "pending"
 	safe_status = _sanitize_status(raw_status, "pending")
 
+	do_doc = frappe.get_doc("Delivery Order", do.name)
+	do_doc.consignment_id = result.get("consignment_id") or ""
+	do_doc.tracking_code = result.get("tracking_code") or ""
+	do_doc.tracking_url = do_doc.get_tracking_url()
+
 	frappe.db.set_value(
 		"Delivery Order",
 		do.name,
 		{
-			"consignment_id": result.get("consignment_id") or "",
-			"tracking_code": result.get("tracking_code") or "",
+			"consignment_id": do_doc.consignment_id,
+			"tracking_code": do_doc.tracking_code,
+			"tracking_url": do_doc.tracking_url,
 			"delivery_status": safe_status,
 			"last_synced_on": now_datetime(),
 			"raw_response": json.dumps(result.get("raw") or result, ensure_ascii=False)[:5000],
@@ -439,7 +446,6 @@ def _do_send_to_courier(
 
 	_append_log(do.name, safe_status, "Order created with courier")
 
-	do_doc = frappe.get_doc("Delivery Order", do.name)
 	try:
 		do_doc.submit()
 	except Exception:
@@ -452,6 +458,7 @@ def _do_send_to_courier(
 		"delivery_order": do.name,
 		"consignment_id": result.get("consignment_id"),
 		"tracking_code": result.get("tracking_code"),
+		"tracking_url": do_doc.tracking_url,
 		"status": result.get("status"),
 	}
 
@@ -459,18 +466,18 @@ def _do_send_to_courier(
 def _append_log(delivery_order_name: str, status: str, message: str):
 	"""Insert a Delivery Order Log row without loading the full parent doc."""
 	try:
-		log = frappe.get_doc(
+		log_entry = frappe.get_doc(
 			{
 				"doctype": "Delivery Order Log",
 				"parenttype": "Delivery Order",
 				"parent": delivery_order_name,
 				"parentfield": "delivery_logs",
 				"status": status,
-				"message": message[:500] if message else "",
+				"message": message,
 				"logged_at": now_datetime(),
 			}
 		)
-		log.db_insert()
+		log_entry.db_insert()
 	except Exception:
 		# Non-fatal logging failure
 		frappe.log_error(frappe.get_traceback(), "_append_log")
@@ -479,16 +486,19 @@ def _append_log(delivery_order_name: str, status: str, message: str):
 def _sync_reference_fields(
 	reference_doctype: str, reference_name: str, delivery_order_name: str, status: str
 ):
-	"""Update courier_status and delivery_order_ref on the linked SO/DN."""
+	"""Update courier_status, delivery_order_ref, and tracking_url on the linked SO/DN."""
 	if not (reference_doctype and reference_name):
 		return
 	try:
+		do = frappe.get_doc("Delivery Order", delivery_order_name)
+		tracking_url = do.get_tracking_url() if hasattr(do, "get_tracking_url") else getattr(do, "tracking_url", "")
 		frappe.db.set_value(
 			reference_doctype,
 			reference_name,
 			{
 				"courier_status": status,
 				"delivery_order_ref": delivery_order_name,
+				"tracking_url": tracking_url,
 			},
 		)
 	except Exception:
