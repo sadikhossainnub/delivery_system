@@ -14,6 +14,18 @@ from frappe.utils import now_datetime
 
 from delivery_system.couriers import get_client
 
+VALID_STATUSES = {
+	"", "pending", "in_review", "delivered_approval_pending",
+	"partial_delivered_approval_pending", "cancelled_approval_pending",
+	"delivered", "partial_delivered", "cancelled", "hold", "unknown",
+}
+
+
+def _sanitize_status(raw_status: str, fallback: str = "pending") -> str:
+	"""Return a valid delivery_status value; fall back if the API returns garbage like '400'."""
+	status = (raw_status or "").strip().lower()
+	return status if status in VALID_STATUSES else fallback
+
 
 def _check_permission(ptype: str = "create"):
 	"""Raise PermissionError if the current user cannot create/write Delivery Order."""
@@ -112,7 +124,7 @@ def sync_single_status(delivery_order_name: str) -> dict:
 		frappe.log_error(frappe.get_traceback(), "sync_single_status")
 		frappe.throw(_("Failed to sync status: {0}").format(str(exc)))
 
-	new_status = (result.get("delivery_status") or "unknown").lower()
+	new_status = _sanitize_status(result.get("delivery_status"), "unknown")
 	old_status = do.delivery_status
 
 	frappe.db.set_value(
@@ -395,19 +407,22 @@ def _do_send_to_courier(
 		_append_log(do.name, "error", str(exc))
 		frappe.throw(_("Unexpected error while calling courier API: {0}").format(str(exc)))
 
+	raw_status = result.get("status") or "pending"
+	safe_status = _sanitize_status(raw_status, "pending")
+
 	frappe.db.set_value(
 		"Delivery Order",
 		do.name,
 		{
 			"consignment_id": result.get("consignment_id") or "",
 			"tracking_code": result.get("tracking_code") or "",
-			"delivery_status": result.get("status") or "pending",
+			"delivery_status": safe_status,
 			"last_synced_on": now_datetime(),
 			"raw_response": json.dumps(result.get("raw") or result, ensure_ascii=False)[:5000],
 		},
 	)
 
-	_append_log(do.name, result.get("status") or "pending", "Order created with courier")
+	_append_log(do.name, safe_status, "Order created with courier")
 
 	do_doc = frappe.get_doc("Delivery Order", do.name)
 	try:
@@ -415,7 +430,7 @@ def _do_send_to_courier(
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "_do_send_to_courier.submit")
 
-	_sync_reference_fields(reference_doctype, reference_name, do.name, result.get("status") or "pending")
+	_sync_reference_fields(reference_doctype, reference_name, do.name, safe_status)
 	frappe.db.commit()
 
 	return {

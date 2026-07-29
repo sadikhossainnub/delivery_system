@@ -10,9 +10,20 @@ from frappe.utils import now_datetime
 
 # Status groups for easier comparisons
 TERMINAL_STATUSES = {"delivered", "cancelled", "partial_delivered"}
+VALID_STATUSES = {
+	"", "pending", "in_review", "delivered_approval_pending",
+	"partial_delivered_approval_pending", "cancelled_approval_pending",
+	"delivered", "partial_delivered", "cancelled", "hold", "unknown",
+}
 BD_PHONE_REGEX = re.compile(r"^01[3-9]\d{8}$")
 MAX_ADDRESS_LEN = 250
 MAX_RAW_RESPONSE_LEN = 5000  # cap stored JSON to avoid DB bloat
+
+
+def _sanitize_status(raw_status: str, fallback: str = "pending") -> str:
+	"""Return a valid delivery_status value; fall back if the API returns garbage like '400'."""
+	status = (raw_status or "").strip().lower()
+	return status if status in VALID_STATUSES else fallback
 
 
 class DeliveryOrder(Document):
@@ -69,7 +80,7 @@ class DeliveryOrder(Document):
 
 		self.consignment_id = result.get("consignment_id") or ""
 		self.tracking_code = result.get("tracking_code") or ""
-		self.delivery_status = result.get("status") or "pending"
+		self.delivery_status = _sanitize_status(result.get("status"), "pending")
 		self.last_synced_on = now_datetime()
 		self.raw_response = json.dumps(result.get("raw") or result, ensure_ascii=False)[:5000]
 
