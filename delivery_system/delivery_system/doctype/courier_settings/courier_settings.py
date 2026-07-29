@@ -6,6 +6,9 @@ from frappe import _
 from frappe.model.document import Document
 
 
+from frappe.utils.password import get_decrypted_password
+
+
 class CourierSettings(Document):
 	def validate(self):
 		"""Auto-generate webhook secrets and calculate Webhook URLs for all courier accounts."""
@@ -33,16 +36,24 @@ class CourierSettings(Document):
 				continue
 			if company and account.company != company:
 				continue
-			secret_val = None
-			try:
-				secret_val = account.get_password("secret_key")
-			except Exception:
-				pass
+
+			secret_val = get_decrypted_password(
+				"Courier Account", account.name, fieldname="secret_key", raise_exception=False
+			)
+			api_key_val = get_decrypted_password(
+				"Courier Account", account.name, fieldname="api_key", raise_exception=False
+			) or account.api_key
+
 			if not secret_val:
-				secret_val = account.secret_key
+				frappe.log_error(
+					f"Courier Account '{account.name}': secret_key could not be decrypted. "
+					"Please re-save Courier Settings with the correct Secret Key.",
+					"CourierSettings.get_account",
+				)
+				return None
 
 			return {
-				"api_key": account.api_key,
+				"api_key": api_key_val,
 				"secret_key": secret_val,
 				"webhook_secret": account.webhook_secret or None,
 				"webhook_url": account.webhook_url or None,
