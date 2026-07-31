@@ -190,19 +190,45 @@ class DeliveryOrder(Document):
 			frappe.log_error(frappe.get_traceback(), "DeliveryOrder.update_status.accounting")
 
 	def _update_reference_status(self, status: str):
-		"""Push delivery_status and tracking_url to the custom field on linked Sales Order / Delivery Note."""
+		"""Push delivery_status and tracking_url to custom fields on linked Sales Order and Delivery Note."""
 		if not (self.reference_doctype and self.reference_name):
 			return
+
+		update_dict = {
+			"courier_status": status,
+			"delivery_order_ref": self.name,
+			"tracking_url": self.get_tracking_url(),
+		}
+
 		try:
-			frappe.db.set_value(
-				self.reference_doctype,
-				self.reference_name,
-				{
-					"courier_status": status,
-					"delivery_order_ref": self.name,
-					"tracking_url": self.get_tracking_url(),
-				},
-			)
+			# 1. Update the direct reference doc (e.g. Delivery Note or Sales Order)
+			if frappe.db.exists(self.reference_doctype, self.reference_name):
+				frappe.db.set_value(self.reference_doctype, self.reference_name, update_dict)
+
+			# 2. If reference is Delivery Note, ALSO update the linked Sales Order
+			if self.reference_doctype == "Delivery Note" and frappe.db.exists("Delivery Note", self.reference_name):
+				dn_doc = frappe.get_doc("Delivery Note", self.reference_name)
+				so_name = dn_doc.get("against_sales_order") or dn_doc.get("sales_order")
+				if not so_name and dn_doc.get("items"):
+					so_name = dn_doc.items[0].get("against_sales_order") or dn_doc.items[0].get("sales_order")
+				if so_name and frappe.db.exists("Sales Order", so_name):
+					frappe.db.set_value("Sales Order", so_name, update_dict)
+
+			# 3. If reference is Sales Order, ALSO update any linked Delivery Notes
+			elif self.reference_doctype == "Sales Order":
+				dn_list = frappe.db.sql(
+					"""
+					SELECT DISTINCT parent
+					FROM `tabDelivery Note Item`
+					WHERE against_sales_order = %s OR sales_order = %s
+					""",
+					(self.reference_name, self.reference_name),
+					as_dict=True,
+				)
+				for row in dn_list:
+					if frappe.db.exists("Delivery Note", row.parent):
+						frappe.db.set_value("Delivery Note", row.parent, update_dict)
+
 		except Exception:
 			# Non-fatal — the fields may not exist if the patch hasn't run
 			frappe.log_error(frappe.get_traceback(), "DeliveryOrder._update_reference_status")

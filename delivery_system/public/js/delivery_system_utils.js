@@ -102,7 +102,7 @@ delivery_system.get_cod_amount = function (doc) {
 	if (["paid", "fully paid", "completed"].includes(payment_status)) return 0;
 
 	const status = String(doc.status || "").trim().toLowerCase();
-	if (status === "paid") return 0;
+	if (["paid", "completed"].includes(status)) return 0;
 
 	const per_paid = flt(doc.per_paid || 0);
 	if (per_paid >= 100) return 0;
@@ -110,7 +110,9 @@ delivery_system.get_cod_amount = function (doc) {
 	const total = flt(doc.rounded_total || doc.grand_total || 0);
 
 	if (doc.outstanding_amount !== undefined && doc.outstanding_amount !== null && doc.outstanding_amount !== "") {
-		return Math.max(0, flt(doc.outstanding_amount));
+		const outstanding = flt(doc.outstanding_amount);
+		if (outstanding <= 0) return 0;
+		return Math.max(0, outstanding);
 	}
 
 	const advance_paid = flt(doc.advance_paid || 0);
@@ -118,20 +120,23 @@ delivery_system.get_cod_amount = function (doc) {
 	const total_paid = Math.max(advance_paid, paid_amount);
 
 	const cod = total - total_paid;
-	return Math.max(0, cod);
+	if (cod <= 0.01) return 0;
+	return Math.max(0, flt(cod.toFixed(2)));
 };
 
 /**
  * Opens a new Delivery Order DocType form pre-populated with reference details.
  */
 delivery_system.open_delivery_order = function (frm, provider_code) {
-	const process_open = function (ref_doc) {
+	const process_open = function (ref_doc, server_cod) {
 		delivery_system.get_customer_phone(frm, function (recipient_phone) {
 			const customer_name =
 				frm.doc.customer_name || frm.doc.customer || "";
 			const address_display =
 				frm.doc.shipping_address || frm.doc.customer_address || "";
-			const cod = delivery_system.get_cod_amount(ref_doc || frm.doc);
+			const cod = (server_cod !== undefined && server_cod !== null)
+				? server_cod
+				: delivery_system.get_cod_amount(ref_doc || frm.doc);
 
 			const strip_func = delivery_system.strip_html || (frappe.utils && frappe.utils.strip_html) || function(s) { return s || ""; };
 			const address_text = address_display ? strip_func(address_display) : "";
@@ -161,20 +166,31 @@ delivery_system.open_delivery_order = function (frm, provider_code) {
 		});
 	};
 
-	// If Delivery Note, check if there is a linked Sales Order to fetch advance payment info
-	if (frm.doc.doctype === "Delivery Note" && !frm.doc.advance_paid) {
-		const so_name = frm.doc.against_sales_order || (frm.doc.items && frm.doc.items[0] && (frm.doc.items[0].against_sales_order || frm.doc.items[0].sales_order));
-		if (so_name) {
-			frappe.db.get_doc("Sales Order", so_name).then((so_doc) => {
-				process_open(so_doc);
-			}).catch(() => {
-				process_open(frm.doc);
-			});
-			return;
+	frappe.call({
+		method: "delivery_system.api.get_ref_cod_amount",
+		args: {
+			reference_doctype: frm.doc.doctype,
+			reference_name: frm.doc.name
+		},
+		callback(r) {
+			const server_cod = r.message !== undefined ? r.message : null;
+			if (frm.doc.doctype === "Delivery Note" && !frm.doc.advance_paid) {
+				const so_name = frm.doc.against_sales_order || (frm.doc.items && frm.doc.items[0] && (frm.doc.items[0].against_sales_order || frm.doc.items[0].sales_order));
+				if (so_name) {
+					frappe.db.get_doc("Sales Order", so_name).then((so_doc) => {
+						process_open(so_doc, server_cod);
+					}).catch(() => {
+						process_open(frm.doc, server_cod);
+					});
+					return;
+				}
+			}
+			process_open(frm.doc, server_cod);
+		},
+		error() {
+			process_open(frm.doc, null);
 		}
-	}
-
-	process_open(frm.doc);
+	});
 };
 
 delivery_system.show_send_dialog = delivery_system.open_delivery_order;

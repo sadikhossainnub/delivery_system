@@ -58,11 +58,13 @@ class TestCODAmountCalculation(unittest.TestCase):
 		doc2 = frappe._dict({"doctype": "Sales Order", "grand_total": 500.0, "payment_status": "Paid"})
 		doc3 = frappe._dict({"doctype": "Sales Order", "grand_total": 500.0, "status": "Paid"})
 		doc4 = frappe._dict({"doctype": "Sales Order", "grand_total": 500.0, "per_paid": 100.0})
+		doc5 = frappe._dict({"doctype": "Sales Order", "grand_total": 500.0, "status": "Completed"})
 
 		self.assertEqual(calculate_cod_amount(doc1), 0.0)
 		self.assertEqual(calculate_cod_amount(doc2), 0.0)
 		self.assertEqual(calculate_cod_amount(doc3), 0.0)
 		self.assertEqual(calculate_cod_amount(doc4), 0.0)
+		self.assertEqual(calculate_cod_amount(doc5), 0.0)
 
 	def test_outstanding_amount_priority(self):
 		"""When outstanding_amount is set explicitly, it takes priority."""
@@ -74,6 +76,15 @@ class TestCODAmountCalculation(unittest.TestCase):
 			}
 		)
 		self.assertEqual(calculate_cod_amount(doc), 150.0)
+
+		doc_zero = frappe._dict(
+			{
+				"doctype": "Sales Order",
+				"grand_total": 2000.0,
+				"outstanding_amount": 0.0,
+			}
+		)
+		self.assertEqual(calculate_cod_amount(doc_zero), 0.0)
 
 
 if __name__ == "__main__":

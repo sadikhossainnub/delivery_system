@@ -61,7 +61,7 @@ def calculate_cod_amount(ref_doc) -> float:
 		return 0.0
 
 	doc_status = str(ref_doc.get("status") or "").strip().lower()
-	if doc_status == "paid":
+	if doc_status in ("paid", "completed"):
 		return 0.0
 
 	per_paid = frappe.utils.flt(ref_doc.get("per_paid"))
@@ -72,29 +72,129 @@ def calculate_cod_amount(ref_doc) -> float:
 
 	# 2. Check direct outstanding_amount if present on the doc
 	if ref_doc.get("outstanding_amount") is not None and ref_doc.get("outstanding_amount") != "":
-		return max(0.0, frappe.utils.flt(ref_doc.get("outstanding_amount")))
+		outstanding = frappe.utils.flt(ref_doc.get("outstanding_amount"))
+		if outstanding <= 0:
+			return 0.0
+		return max(0.0, float(outstanding))
 
-	# 3. Advance paid or paid amount on the doc
+	# 3. Advance paid or paid amount directly on the doc
 	advance_paid = frappe.utils.flt(ref_doc.get("advance_paid") or 0.0)
 	paid_amount = frappe.utils.flt(ref_doc.get("paid_amount") or 0.0)
-
-	# If Delivery Note has no advance_paid directly, check linked Sales Order
-	if not advance_paid and getattr(ref_doc, "doctype", "") == "Delivery Note":
-		so_name = ref_doc.get("against_sales_order") or ref_doc.get("sales_order")
-		if not so_name and ref_doc.get("items"):
-			so_name = ref_doc.items[0].get("against_sales_order") or ref_doc.items[0].get("sales_order")
-		if so_name and frappe.db.exists("Sales Order", so_name):
-			so_doc = frappe.get_doc("Sales Order", so_name)
-			if so_doc.get("is_paid") or str(so_doc.get("payment_status") or "").lower() in ("paid", "fully paid", "completed"):
-				return 0.0
-			advance_paid = frappe.utils.flt(so_doc.get("advance_paid") or 0.0)
-			if so_doc.get("outstanding_amount") is not None and so_doc.get("outstanding_amount") != "":
-				return max(0.0, frappe.utils.flt(so_doc.get("outstanding_amount")))
-
 	total_paid = max(advance_paid, paid_amount)
+
+	ref_doctype = getattr(ref_doc, "doctype", "") or ref_doc.get("doctype") or ""
+	ref_name = getattr(ref_doc, "name", "") or ref_doc.get("name") or ""
+
+	# 4. Check DB for linked Payment Entries and Sales Invoices if reference exists
+	db_paid = 0.0
+	if ref_doctype and ref_name and getattr(frappe, "db", None) and hasattr(frappe.db, "sql"):
+		try:
+			# Check submitted Payment Entries linked to this reference doc
+			pe_allocated = frappe.db.sql(
+				"""
+				SELECT SUM(allocated_amount)
+				FROM `tabPayment Entry Reference`
+				WHERE reference_doctype = %s AND reference_name = %s AND docstatus = 1
+				""",
+				(ref_doctype, ref_name),
+			)
+			if pe_allocated and pe_allocated[0][0]:
+				db_paid += frappe.utils.flt(pe_allocated[0][0])
+
+			# Check linked Sales Invoices if reference is Sales Order
+			if ref_doctype == "Sales Order":
+				si_list = frappe.db.sql(
+					"""
+					SELECT DISTINCT parent
+					FROM `tabSales Invoice Item`
+					WHERE sales_order = %s AND docstatus = 1
+					""",
+					(ref_name,),
+					as_dict=True,
+				)
+				if si_list:
+					all_si_paid = True
+					si_total_paid = 0.0
+					for row in si_list:
+						si_doc = frappe.db.get_value(
+							"Sales Invoice",
+							row.parent,
+							["grand_total", "outstanding_amount", "status", "is_paid"],
+							as_dict=True,
+						)
+						if si_doc:
+							if si_doc.is_paid or str(si_doc.status or "").lower() in ("paid", "completed") or frappe.utils.flt(si_doc.outstanding_amount) <= 0:
+								si_total_paid += frappe.utils.flt(si_doc.grand_total)
+							else:
+								all_si_paid = False
+								si_total_paid += max(0.0, frappe.utils.flt(si_doc.grand_total) - frappe.utils.flt(si_doc.outstanding_amount))
+					if all_si_paid and si_list:
+						return 0.0
+					db_paid += si_total_paid
+
+			# Check linked Sales Invoices & Sales Order if reference is Delivery Note (Sales Order -> Delivery Note -> Sales Invoice workflow)
+			elif ref_doctype == "Delivery Note":
+				dn_si_list = frappe.db.sql(
+					"""
+					SELECT DISTINCT parent
+					FROM `tabSales Invoice Item`
+					WHERE delivery_note = %s AND docstatus = 1
+					""",
+					(ref_name,),
+					as_dict=True,
+				)
+				if dn_si_list:
+					all_dn_si_paid = True
+					dn_si_paid_sum = 0.0
+					for row in dn_si_list:
+						si_doc = frappe.db.get_value(
+							"Sales Invoice",
+							row.parent,
+							["grand_total", "outstanding_amount", "status", "is_paid"],
+							as_dict=True,
+						)
+						if si_doc:
+							if si_doc.is_paid or str(si_doc.status or "").lower() in ("paid", "completed") or frappe.utils.flt(si_doc.outstanding_amount) <= 0:
+								dn_si_paid_sum += frappe.utils.flt(si_doc.grand_total)
+							else:
+								all_dn_si_paid = False
+								dn_si_paid_sum += max(0.0, frappe.utils.flt(si_doc.grand_total) - frappe.utils.flt(si_doc.outstanding_amount))
+					if all_dn_si_paid and dn_si_list:
+						return 0.0
+					db_paid += dn_si_paid_sum
+
+				so_name = ref_doc.get("against_sales_order") or ref_doc.get("sales_order")
+				if not so_name and ref_doc.get("items"):
+					so_name = ref_doc.items[0].get("against_sales_order") or ref_doc.items[0].get("sales_order")
+				if so_name and frappe.db.exists("Sales Order", so_name):
+					so_doc = frappe.get_doc("Sales Order", so_name)
+					so_cod = calculate_cod_amount(so_doc)
+					if so_cod <= 0:
+						return 0.0
+					if total_amount > 0:
+						cod = min(total_amount - (total_paid + db_paid), so_cod)
+						return max(0.0, float(round(cod, 2)))
+
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "calculate_cod_amount.db_check")
+
+	total_paid = max(total_paid, db_paid)
 	cod = total_amount - total_paid
 
-	return max(0.0, float(cod))
+	if cod <= 0.01:
+		return 0.0
+
+	return max(0.0, float(round(cod, 2)))
+
+
+@frappe.whitelist()
+def get_ref_cod_amount(reference_doctype: str, reference_name: str) -> float:
+	"""Return calculated COD amount for a given reference doctype and name."""
+	if not reference_doctype or not reference_name or not frappe.db.exists(reference_doctype, reference_name):
+		return 0.0
+	ref_doc = frappe.get_doc(reference_doctype, reference_name)
+	return calculate_cod_amount(ref_doc)
+
 
 
 @frappe.whitelist()
@@ -560,21 +660,41 @@ def _append_log(delivery_order_name: str, status: str, message: str):
 def _sync_reference_fields(
 	reference_doctype: str, reference_name: str, delivery_order_name: str, status: str
 ):
-	"""Update courier_status, delivery_order_ref, and tracking_url on the linked SO/DN."""
+	"""Update courier_status, delivery_order_ref, and tracking_url on the linked SO and DN."""
 	if not (reference_doctype and reference_name):
 		return
 	try:
 		do = frappe.get_doc("Delivery Order", delivery_order_name)
 		tracking_url = do.get_tracking_url() if hasattr(do, "get_tracking_url") else getattr(do, "tracking_url", "")
-		frappe.db.set_value(
-			reference_doctype,
-			reference_name,
-			{
-				"courier_status": status,
-				"delivery_order_ref": delivery_order_name,
-				"tracking_url": tracking_url,
-			},
-		)
+		update_dict = {
+			"courier_status": status,
+			"delivery_order_ref": delivery_order_name,
+			"tracking_url": tracking_url,
+		}
+
+		if frappe.db.exists(reference_doctype, reference_name):
+			frappe.db.set_value(reference_doctype, reference_name, update_dict)
+
+		if reference_doctype == "Delivery Note" and frappe.db.exists("Delivery Note", reference_name):
+			dn_doc = frappe.get_doc("Delivery Note", reference_name)
+			so_name = dn_doc.get("against_sales_order") or dn_doc.get("sales_order")
+			if not so_name and dn_doc.get("items"):
+				so_name = dn_doc.items[0].get("against_sales_order") or dn_doc.items[0].get("sales_order")
+			if so_name and frappe.db.exists("Sales Order", so_name):
+				frappe.db.set_value("Sales Order", so_name, update_dict)
+		elif reference_doctype == "Sales Order":
+			dn_list = frappe.db.sql(
+				"""
+				SELECT DISTINCT parent
+				FROM `tabDelivery Note Item`
+				WHERE against_sales_order = %s OR sales_order = %s
+				""",
+				(reference_name, reference_name),
+				as_dict=True,
+			)
+			for row in dn_list:
+				if frappe.db.exists("Delivery Note", row.parent):
+					frappe.db.set_value("Delivery Note", row.parent, update_dict)
 	except Exception:
 		# Custom fields may not exist yet (patch not applied)
 		pass

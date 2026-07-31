@@ -5,13 +5,6 @@
 
 frappe.ui.form.on("Delivery Order", {
 	refresh(frm) {
-		// Show Send to Courier button on draft docs
-		if (frm.doc.docstatus === 0 && !frm.doc.consignment_id) {
-			frm.add_custom_button(__("Send to Courier"), () => {
-				frm.savesubmit();
-			}).addClass("btn-primary");
-		}
-
 		// Show courier action buttons on submitted docs
 		if (frm.doc.docstatus === 1) {
 			_add_refresh_status_btn(frm);
@@ -41,10 +34,23 @@ frappe.ui.form.on("Delivery Order", {
 					if (addr) frm.set_value("recipient_address", strip_func(addr));
 				}
 				if (frm.doc.cod_amount === undefined || frm.doc.cod_amount === null || frm.doc.cod_amount === "") {
-					const cod = (window.delivery_system && window.delivery_system.get_cod_amount)
-						? window.delivery_system.get_cod_amount(ref_doc)
-						: (ref_doc.grand_total || ref_doc.rounded_total || 0);
-					frm.set_value("cod_amount", cod);
+					frappe.call({
+						method: "delivery_system.api.get_ref_cod_amount",
+						args: {
+							reference_doctype: frm.doc.reference_doctype,
+							reference_name: frm.doc.reference_name
+						},
+						callback(r) {
+							if (r.message !== undefined) {
+								frm.set_value("cod_amount", r.message);
+							} else {
+								const cod = (window.delivery_system && window.delivery_system.get_cod_amount)
+									? window.delivery_system.get_cod_amount(ref_doc)
+									: (ref_doc.grand_total || ref_doc.rounded_total || 0);
+								frm.set_value("cod_amount", cod);
+							}
+						}
+					});
 				}
 			});
 		}
