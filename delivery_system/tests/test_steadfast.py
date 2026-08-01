@@ -299,6 +299,60 @@ class TestSteadfastClient(unittest.TestCase):
 		self.assertEqual(len(payments), 1)
 		self.assertEqual(payments[0]["payment_id"], "PAY001")
 
+	def test_extract_charge_from_raw_response(self):
+		from delivery_system.delivery_system.report.delivery_charge_vs_revenue.delivery_charge_vs_revenue import (
+			extract_charge_from_raw_response,
+		)
+
+		raw = json.dumps({"consignment": {"delivery_charge": 80.0}})
+		charge = extract_charge_from_raw_response(raw)
+		self.assertEqual(charge, 80.0)
+
+	@patch("delivery_system.delivery_system.report.delivery_charge_vs_revenue.delivery_charge_vs_revenue.fetch_delivery_charges_from_api")
+	def test_delivery_charge_vs_revenue_report_data(self, mock_fetch_api):
+		from delivery_system.delivery_system.report.delivery_charge_vs_revenue.delivery_charge_vs_revenue import (
+			get_data,
+		)
+
+		mock_db = MagicMock()
+		main_rows = [
+			{
+				"delivery_order": "DS-2026-00001",
+				"reference_doctype": "Sales Order",
+				"reference_name": "SO-001",
+				"invoice_amount": 1000.0,
+				"total_amount": 1000.0,
+				"consignment_id": "CID100",
+				"invoice_reference": "INV001",
+				"courier_provider": "Steadfast",
+				"delivery_status": "delivered",
+				"raw_response": None,
+			}
+		]
+		mock_db.sql.side_effect = lambda query, *args, **kwargs: main_rows if "FROM `tabDelivery Order`" in query else []
+		mock_db.get_value.return_value = {
+			"total_taxes_and_charges": 50.0,
+			"total_net_weight": 1.5,
+			"grand_total": 1000.0,
+		}
+
+		with patch.object(frappe, "db", mock_db):
+			mock_fetch_api.return_value = {"CID100": {"charge": 75.0, "weight": 1.5}}
+			rows = get_data({})
+			self.assertEqual(len(rows), 1)
+			self.assertEqual(rows[0]["sales_order"], "SO-001")
+			self.assertEqual(rows[0]["courier_provider"], "Steadfast")
+			self.assertEqual(rows[0]["consignment_id"], "CID100")
+			self.assertEqual(rows[0]["total_amount"], 1000.0)
+			self.assertEqual(rows[0]["total_taxes_and_charges"], 50.0)
+			self.assertEqual(rows[0]["weight"], 1.5)
+			self.assertEqual(rows[0]["delivery_charge"], 75.0)
+			self.assertEqual(rows[0]["cod_collection_fee"], 10.0)
+			self.assertEqual(rows[0]["net_margin"], 915.0)
+
+
 
 if __name__ == "__main__":
 	unittest.main()
+
+

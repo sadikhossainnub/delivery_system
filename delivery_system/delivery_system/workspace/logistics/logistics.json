@@ -94,27 +94,27 @@
   },
   {
    "label": "Courier Delivery Status",
-   "link_to": "courier_delivery_status",
+   "link_to": "Courier Delivery Status",
    "type": "Report"
   },
   {
    "label": "Pending Stuck Deliveries",
-   "link_to": "pending_stuck_deliveries",
+   "link_to": "Pending Stuck Deliveries",
    "type": "Report"
   },
   {
    "label": "COD Reconciliation",
-   "link_to": "cod_reconciliation",
+   "link_to": "COD Reconciliation",
    "type": "Report"
   },
   {
    "label": "Delivery Charge vs Revenue",
-   "link_to": "delivery_charge_vs_revenue",
+   "link_to": "Delivery Charge vs Revenue",
    "type": "Report"
   },
   {
    "label": "Courier Clearing Statement",
-   "link_to": "courier_clearing_statement",
+   "link_to": "Courier Clearing Statement",
    "type": "Report"
   },
   {

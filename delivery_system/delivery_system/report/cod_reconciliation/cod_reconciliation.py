@@ -98,7 +98,7 @@ def get_data(filters):
 			do.reference_name
 		FROM `tabDelivery Order` do
 		WHERE do.docstatus = 1
-			AND do.delivery_status = 'delivered'
+			AND do.delivery_status IN ('delivered', 'partial_delivered')
 			{conditions}
 		ORDER BY do.creation DESC
 	"""

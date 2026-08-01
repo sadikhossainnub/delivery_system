@@ -196,6 +196,85 @@ def get_ref_cod_amount(reference_doctype: str, reference_name: str) -> float:
 	return calculate_cod_amount(ref_doc)
 
 
+@frappe.whitelist()
+def get_delivery_charge(
+	delivery_order_name: str | None = None,
+	reference_doctype: str | None = None,
+	reference_name: str | None = None,
+) -> float:
+	"""Fetch delivery charge for a given Delivery Order or reference document via courier API or logs."""
+	if not delivery_order_name and reference_doctype and reference_name:
+		delivery_order_name = frappe.db.get_value(
+			"Delivery Order",
+			{"reference_doctype": reference_doctype, "reference_name": reference_name, "docstatus": ["!=", 2]},
+			"name",
+		)
+
+	if not delivery_order_name or not frappe.db.exists("Delivery Order", delivery_order_name):
+		return 0.0
+
+	do = frappe.get_doc("Delivery Order", delivery_order_name)
+	provider_code = (
+		frappe.db.get_value("Courier Provider", do.courier_provider, "provider_code")
+		if do.courier_provider
+		else "steadfast"
+	)
+	company = _get_company_from_reference(do.reference_doctype, do.reference_name)
+
+	# 1. Attempt to fetch charge via Courier API
+	try:
+		client = get_client(provider_code, company)
+		if hasattr(client, "get_payments"):
+			payments = client.get_payments()
+			for p in payments:
+				cid = str(p.get("consignment_id") or p.get("cid") or "").strip()
+				inv = str(p.get("invoice") or "").strip()
+				if (cid and cid == do.consignment_id) or (inv and inv == do.invoice_reference):
+					chg = p.get("delivery_charge") or p.get("charge") or p.get("delivery_fee") or p.get("charge_amount")
+					if chg is not None:
+						return float(chg)
+
+		status_res = client.get_status(
+			consignment_id=do.consignment_id or None,
+			invoice=do.invoice_reference or None,
+		)
+		raw = status_res.get("raw") or status_res
+		if isinstance(raw, dict):
+			for key in ("delivery_charge", "charge", "delivery_fee", "charge_amount"):
+				if key in raw and raw[key] is not None:
+					return float(raw[key])
+	except Exception:
+		pass
+
+	# 2. Extract charge from stored raw_response JSON
+	if do.raw_response:
+		try:
+			data = json.loads(do.raw_response)
+			consignment = data.get("consignment") or data
+			if isinstance(consignment, dict):
+				for key in ("delivery_charge", "charge", "delivery_fee", "charge_amount"):
+					if key in consignment and consignment[key] is not None:
+						return float(consignment[key])
+		except Exception:
+			pass
+
+	# 3. Check Courier Payout Log
+	res = frappe.db.sql(
+		"""
+		SELECT cpl.delivery_charges_deducted
+		FROM `tabCourier Payout Log Item` cpli
+		JOIN `tabCourier Payout Log` cpl ON cpl.name = cpli.parent
+		WHERE cpli.delivery_order = %s
+		LIMIT 1
+		""",
+		(delivery_order_name,),
+	)
+	if res and res[0][0] is not None:
+		return float(res[0][0])
+
+	return 0.0
+
+
 
 @frappe.whitelist()
 def send_to_courier(

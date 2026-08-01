@@ -18,15 +18,14 @@ frappe.query_reports["COD Reconciliation"] = {
 		{
 			fieldname: "reconciliation_status",
 			label: __("Reconciliation Status"),
-			fieldtype": "Select",
+			fieldtype: "Select",
 			options: "\nMatched\nUnmatched\nPartial",
 		},
 		{
 			fieldname: "company",
 			label: __("Company"),
-			fieldtype": "Link",
+			fieldtype: "Link",
 			options: "Company",
-			default: frappe.defaults.get_user_default("Company"),
 		},
 	],
 	onload(report) {
