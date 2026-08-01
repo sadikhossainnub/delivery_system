@@ -117,3 +117,62 @@ def notify_stuck_deliveries():
 	frappe.logger("delivery_system").info(summary_msg)
 	frappe.log_error(summary_msg, "notify_stuck_deliveries.digest")
 
+
+def sync_courier_payouts():
+	"""Scheduled job: fetch payout statements from courier APIs and auto-create Courier Payout Log records."""
+	settings = frappe.get_single("Courier Settings")
+	if not settings.enable_accounting_automation:
+		return
+
+	from delivery_system.accounting import post_payout_entries
+	from delivery_system.couriers import get_client
+
+	default_provider = settings.default_provider
+	if not default_provider:
+		return
+
+	provider_code = (
+		frappe.db.get_value("Courier Provider", default_provider, "provider_code") or "steadfast"
+	)
+
+	try:
+		client = get_client(provider_code)
+		if not hasattr(client, "get_payments"):
+			return
+
+		raw_payments = client.get_payments()
+		if not raw_payments:
+			return
+
+		for p in raw_payments:
+			payment_id = str(p.get("payment_id") or p.get("id") or "").strip()
+			if not payment_id:
+				continue
+
+			if frappe.db.exists("Courier Payout Log", {"payment_id": payment_id}):
+				continue
+
+			cid = str(p.get("consignment_id") or p.get("cid") or "").strip()
+			inv = str(p.get("invoice") or "").strip()
+
+			filters = {"docstatus": 1}
+			if cid:
+				filters["consignment_id"] = cid
+			elif inv:
+				filters["invoice_reference"] = inv
+			else:
+				continue
+
+			matched_orders = frappe.get_all(
+				"Delivery Order",
+				filters=filters,
+				fields=["name", "cod_amount"],
+			)
+
+			post_payout_entries(p, matched_orders)
+
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "sync_courier_payouts")
+
+
