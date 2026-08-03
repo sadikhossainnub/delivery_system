@@ -124,126 +124,47 @@ delivery_system.get_cod_amount = function (doc) {
 	if (cod <= 0.01) return 0;
 	return Math.max(0, flt(cod.toFixed(2)));
 };
-
 /**
- * Primary send flow: calls server-side send_to_courier API directly via a Dialog.
- * - Avoids frappe.route_options + frappe.new_doc() race condition
- * - Avoids broken Bootstrap 3-style dropdown in Frappe v14/v15
- * - Uses frappe.ui.Dialog (compatible with all Frappe versions)
+ * Primary send flow: Opens a new Delivery Order DocType form pre-filled with order details.
  */
 delivery_system.do_send_to_courier = function (frm, provider_code) {
 	delivery_system.get_customer_phone(frm, function (recipient_phone) {
-		var customer_name = frm.doc.customer_name || frm.doc.customer || "";
+		var customer_name  = frm.doc.customer_name || frm.doc.customer || "";
 		var address_display = frm.doc.shipping_address || frm.doc.customer_address || "";
 		var strip_func = delivery_system.strip_html
 			|| (frappe.utils && frappe.utils.strip_html)
 			|| function (s) { return s || ""; };
 		var address_text = address_display ? strip_func(address_display) : "";
 
-		var dialog_fields = [
-			{
-				label: __("Recipient Name"),
-				fieldname: "recipient_name",
-				fieldtype: "Data",
-				reqd: 1,
-				"default": customer_name,
-			},
-			{
-				label: __("Recipient Phone"),
-				fieldname: "recipient_phone",
-				fieldtype: "Data",
-				reqd: 1,
-				"default": recipient_phone,
-			},
-			{
-				label: __("Recipient Address"),
-				fieldname: "recipient_address",
-				fieldtype: "Small Text",
-				reqd: 1,
-				"default": address_text,
-			},
-			{
-				label: __("COD Amount"),
-				fieldname: "cod_amount",
-				fieldtype: "Currency",
-				reqd: 1,
-				"default": 0,
-			},
-			{
-				label: __("Delivery Type"),
-				fieldname: "delivery_type",
-				fieldtype: "Select",
-				options: "Home Delivery\nPoint Delivery",
-				"default": "Home Delivery",
-			},
-			{
-				label: __("Note"),
-				fieldname: "note",
-				fieldtype: "Small Text",
-			},
-		];
-
-		function _open_booking_dialog(prefill_cod) {
-			var d = new frappe.ui.Dialog({
-				title: __("Send to Courier"),
-				fields: dialog_fields,
-				primary_action_label: __("Book Now"),
-				primary_action: function (values) {
-					d.disable_primary_action();
-					d.set_message(__("Booking with courier..."));
-
-					frappe.call({
-						method: "delivery_system.api.send_to_courier",
-						args: {
-							reference_doctype: frm.doc.doctype,
-							reference_name: frm.doc.name,
-							provider_code: provider_code || null,
-							recipient_name: values.recipient_name,
-							recipient_phone: values.recipient_phone,
-							recipient_address: values.recipient_address,
-							cod_amount: values.cod_amount,
-							delivery_type: values.delivery_type || "Home Delivery",
-							note: values.note || "",
-						},
-						callback: function (res) {
-							d.hide();
-							if (res && res.message) {
-								frappe.show_alert({
-									message: __("Booked! Delivery Order: {0}", [res.message.delivery_order || ""]),
-									indicator: "green",
-								}, 8);
-								frm.reload_doc();
-							}
-						},
-						error: function () {
-							d.enable_primary_action();
-							d.hide_message();
-						},
-					});
-				},
-			});
-
-			d.set_value("cod_amount", prefill_cod || 0);
-			d.show();
-		}
-
-		// Try to prefill COD from server; fall back to client-side calculation
 		frappe.call({
 			method: "delivery_system.api.get_ref_cod_amount",
-			args: {
-				reference_doctype: frm.doc.doctype,
-				reference_name: frm.doc.name,
-			},
+			args: { reference_doctype: frm.doc.doctype, reference_name: frm.doc.name },
 			callback: function (r) {
 				var server_cod = (r && r.message !== undefined && r.message !== null)
-					? r.message
-					: delivery_system.get_cod_amount(frm.doc);
-				_open_booking_dialog(server_cod);
+					? r.message : delivery_system.get_cod_amount(frm.doc);
+				_open_new_delivery_order(server_cod);
 			},
 			error: function () {
-				_open_booking_dialog(delivery_system.get_cod_amount(frm.doc));
+				_open_new_delivery_order(delivery_system.get_cod_amount(frm.doc));
 			},
 		});
+
+		function _open_new_delivery_order(prefill_cod) {
+			var new_doc_opts = {
+				reference_doctype: frm.doc.doctype,
+				reference_name: frm.doc.name,
+				recipient_name: customer_name,
+				recipient_phone: recipient_phone,
+				recipient_address: address_text,
+				cod_amount: prefill_cod,
+				delivery_type: "Home Delivery",
+			};
+			if (provider_code) {
+				new_doc_opts.courier_provider = provider_code;
+			}
+
+			frappe.new_doc("Delivery Order", new_doc_opts);
+		}
 	});
 };
 

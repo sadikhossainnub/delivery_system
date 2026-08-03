@@ -136,10 +136,10 @@ def get_data(filters):
 			dn_list = frappe.db.sql(
 				"""
 				SELECT DISTINCT parent FROM `tabDelivery Note Item`
-				WHERE against_sales_order = %s OR sales_order = %s
+				WHERE against_sales_order = %s
 				LIMIT 1
 				""",
-				(ref_dn, ref_dn),
+				(ref_dn,),
 				as_dict=True,
 			)
 			if dn_list:
@@ -156,6 +156,25 @@ def get_data(filters):
 				doc_weight = float(so_details.get("total_net_weight") or 0.0)
 				if not row.get("total_amount"):
 					row["total_amount"] = float(so_details.get("grand_total") or 0.0)
+				if not doc_weight:
+					item_w = frappe.db.sql(
+						"""
+						SELECT SUM(
+							CASE
+								WHEN soi.total_weight > 0 THEN soi.total_weight
+								WHEN soi.weight_per_unit > 0 THEN soi.qty * soi.weight_per_unit
+								WHEN i.weight_per_unit > 0 THEN soi.qty * i.weight_per_unit
+								ELSE 0
+							END
+						)
+						FROM `tabSales Order Item` soi
+						LEFT JOIN `tabItem` i ON i.name = soi.item_code
+						WHERE soi.parent = %s
+						""",
+						(ref_dn,),
+					)
+					if item_w and item_w[0][0]:
+						doc_weight = float(item_w[0][0])
 
 		elif ref_dt == "Delivery Note":
 			delivery_note = ref_dn
@@ -182,24 +201,46 @@ def get_data(filters):
 				doc_weight = float(dn_details.get("total_net_weight") or 0.0)
 				if not row.get("total_amount"):
 					row["total_amount"] = float(dn_details.get("grand_total") or 0.0)
-
+				if not doc_weight:
+					item_w = frappe.db.sql(
+						"""
+						SELECT SUM(
+							CASE
+								WHEN dni.total_weight > 0 THEN dni.total_weight
+								WHEN dni.weight_per_unit > 0 THEN dni.qty * dni.weight_per_unit
+								WHEN i.weight_per_unit > 0 THEN dni.qty * i.weight_per_unit
+								ELSE 0
+							END
+						)
+						FROM `tabDelivery Note Item` dni
+						LEFT JOIN `tabItem` i ON i.name = dni.item_code
+						WHERE dni.parent = %s
+						""",
+						(ref_dn,),
+					)
+					if item_w and item_w[0][0]:
+						doc_weight = float(item_w[0][0])
 
 		api_weight = extract_weight_from_raw_response(row.get("raw_response"))
-		weight = api_weight if api_weight is not None else doc_weight
 
+		map_weight = None
 		charge = None
 		if cid and cid in api_data_map:
 			charge = api_data_map[cid].get("charge")
-			if (weight is None or weight == 0) and api_data_map[cid].get("weight") is not None:
-				weight = api_data_map[cid]["weight"]
+			map_weight = api_data_map[cid].get("weight")
 		elif inv and inv in api_data_map:
 			charge = api_data_map[inv].get("charge")
-			if (weight is None or weight == 0) and api_data_map[inv].get("weight") is not None:
-				weight = api_data_map[inv]["weight"]
+			map_weight = api_data_map[inv].get("weight")
 		elif do_name and do_name in api_data_map:
 			charge = api_data_map[do_name].get("charge")
-			if (weight is None or weight == 0) and api_data_map[do_name].get("weight") is not None:
-				weight = api_data_map[do_name]["weight"]
+			map_weight = api_data_map[do_name].get("weight")
+
+		if map_weight is not None and float(map_weight) > 0:
+			weight = float(map_weight)
+		elif api_weight is not None and float(api_weight) > 0:
+			weight = float(api_weight)
+		else:
+			weight = float(doc_weight or 0.0)
 
 		if charge is None and row.get("raw_response"):
 			charge = extract_charge_from_raw_response(row.get("raw_response"))
@@ -224,7 +265,7 @@ def get_data(filters):
 				"consignment_id": cid,
 				"total_amount": tot_amt,
 				"total_taxes_and_charges": taxes_and_charges,
-				"weight": float(weight or 0.0),
+				"weight": weight,
 				"delivery_status": row.get("delivery_status"),
 				"delivery_charge": charge,
 				"cod_collection_fee": cod_fee,
@@ -241,12 +282,22 @@ def fetch_delivery_charges_from_api(filters=None):
 	try:
 		from delivery_system.couriers import get_client
 
-		default_provider = frappe.db.get_single_value("Courier Settings", "default_provider")
-		provider_code = (
-			frappe.db.get_value("Courier Provider", default_provider, "provider_code")
-			if default_provider
-			else "steadfast"
-		)
+		provider_code = None
+		if filters and filters.get("courier_provider"):
+			p_val = filters.get("courier_provider")
+			provider_code = frappe.db.get_value("Courier Provider", p_val, "provider_code") or p_val
+
+		if not provider_code:
+			default_provider = frappe.db.get_single_value("Courier Settings", "default_provider")
+			if default_provider:
+				provider_code = (
+					frappe.db.get_value("Courier Provider", default_provider, "provider_code")
+					or default_provider
+				)
+
+		if not provider_code:
+			provider_code = "steadfast"
+
 		client = get_client(provider_code)
 
 		date_from = filters.get("from_date") if filters else None
@@ -265,7 +316,14 @@ def fetch_delivery_charges_from_api(filters=None):
 					or p.get("delivery_fee")
 					or p.get("charge_amount")
 				)
-				wt = p.get("weight") or p.get("total_weight") or p.get("consignment_weight")
+				wt = (
+					p.get("weight")
+					or p.get("total_weight")
+					or p.get("consignment_weight")
+					or p.get("package_weight")
+					or p.get("actual_weight")
+					or p.get("item_weight")
+				)
 				entry = {
 					"charge": float(chg) if chg is not None else None,
 					"weight": float(wt) if wt is not None else None,
@@ -289,7 +347,7 @@ def extract_charge_from_raw_response(raw_response_str):
 	try:
 		data = json.loads(raw_response_str) if isinstance(raw_response_str, str) else raw_response_str
 		if isinstance(data, dict):
-			consignment = data.get("consignment") or data
+			consignment = data.get("consignment") or data.get("order") or data.get("data") or data
 			if isinstance(consignment, dict):
 				for key in ("delivery_charge", "charge", "delivery_fee", "charge_amount"):
 					if key in consignment and consignment[key] is not None:
@@ -306,11 +364,29 @@ def extract_weight_from_raw_response(raw_response_str):
 	try:
 		data = json.loads(raw_response_str) if isinstance(raw_response_str, str) else raw_response_str
 		if isinstance(data, dict):
-			consignment = data.get("consignment") or data
-			if isinstance(consignment, dict):
-				for key in ("weight", "total_weight", "package_weight", "consignment_weight"):
-					if key in consignment and consignment[key] is not None:
-						return float(consignment[key])
+			dict_sources = [
+				data.get("consignment"),
+				data.get("order"),
+				data.get("data"),
+				data,
+			]
+			weight_keys = (
+				"weight",
+				"total_weight",
+				"package_weight",
+				"consignment_weight",
+				"item_weight",
+				"actual_weight",
+				"parcel_weight",
+			)
+			for source in dict_sources:
+				if isinstance(source, dict):
+					for key in weight_keys:
+						if key in source and source[key] is not None:
+							try:
+								return float(source[key])
+							except (ValueError, TypeError):
+								pass
 	except Exception:
 		pass
 	return None
@@ -349,6 +425,14 @@ def build_conditions(filters):
 	if filters.get("to_date"):
 		conditions.append("DATE(do.creation) <= %(to_date)s")
 		values["to_date"] = filters["to_date"]
+
+	if filters.get("courier_provider"):
+		conditions.append("do.courier_provider = %(courier_provider)s")
+		values["courier_provider"] = filters["courier_provider"]
+
+	if filters.get("delivery_status"):
+		conditions.append("do.delivery_status = %(delivery_status)s")
+		values["delivery_status"] = filters["delivery_status"]
 
 	if filters.get("company"):
 		conditions.append(
