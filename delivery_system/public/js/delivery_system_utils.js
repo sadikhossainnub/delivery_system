@@ -125,7 +125,9 @@ delivery_system.get_cod_amount = function (doc) {
 	return Math.max(0, flt(cod.toFixed(2)));
 };
 /**
- * Primary send flow: Opens a new Delivery Order DocType form pre-filled with order details.
+ * Primary send flow: Directly opens the full Delivery Order DocType form page
+ * pre-filled with order details (recipient, address, COD amount, courier provider).
+ * No popup dialog is used.
  */
 delivery_system.do_send_to_courier = function (frm, provider_code) {
 	delivery_system.get_customer_phone(frm, function (recipient_phone) {
