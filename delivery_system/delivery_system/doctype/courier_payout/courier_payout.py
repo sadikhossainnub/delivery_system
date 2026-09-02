@@ -4,5 +4,5 @@
 from frappe.model.document import Document
 
 
-class CourierPayoutLogItem(Document):
+class CourierPayout(Document):
 	pass
