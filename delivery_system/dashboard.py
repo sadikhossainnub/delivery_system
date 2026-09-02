@@ -38,7 +38,7 @@ def sync_dashboard_charts():
 			"name": "Monthly COD Collection Trend",
 			"chart_name": "Monthly COD Collection Trend",
 			"chart_type": "Sum",
-			"document_type": "Courier Payout Log",
+			"document_type": "Courier Payout",
 			"based_on": "payout_date",
 			"value_based_on": "net_amount",
 			"time_interval": "Monthly",
@@ -53,7 +53,7 @@ def sync_dashboard_charts():
 			"name": "Monthly Delivery Charges Trend",
 			"chart_name": "Monthly Delivery Charges Trend",
 			"chart_type": "Sum",
-			"document_type": "Courier Payout Log",
+			"document_type": "Courier Payout",
 			"based_on": "payout_date",
 			"value_based_on": "delivery_charges_deducted",
 			"time_interval": "Monthly",
@@ -190,7 +190,7 @@ def get_stuck_deliveries_count(company=None):
 
 @frappe.whitelist()
 def get_monthly_cod_collected(company=None):
-	"""1.8 — This Month's COD Collected (sum net_amount from Courier Payout Log)."""
+	"""1.8 — This Month's COD Collected (sum net_amount from Courier Payout)."""
 	first_day = get_first_day(today())
 	last_day = get_last_day(today())
 
@@ -200,7 +200,7 @@ def get_monthly_cod_collected(company=None):
 
 	result = frappe.db.sql("""
 		SELECT IFNULL(SUM(net_amount), 0) as total
-		FROM `tabCourier Payout Log`
+		FROM `tabCourier Payout`
 		WHERE payout_date BETWEEN %s AND %s
 	""", (first_day, last_day), as_dict=True)
 
@@ -216,7 +216,7 @@ def get_monthly_delivery_charges(company=None):
 
 	result = frappe.db.sql("""
 		SELECT IFNULL(SUM(delivery_charges_deducted), 0) as total
-		FROM `tabCourier Payout Log`
+		FROM `tabCourier Payout`
 		WHERE payout_date BETWEEN %s AND %s
 	""", (first_day, last_day), as_dict=True)
 
@@ -296,7 +296,7 @@ def get_monthly_cod_trend(company=None, months=6):
 	result = frappe.db.sql("""
 		SELECT DATE_FORMAT(payout_date, '%%Y-%%m') as month_label,
 		       IFNULL(SUM(net_amount), 0) as total
-		FROM `tabCourier Payout Log`
+		FROM `tabCourier Payout`
 		WHERE payout_date BETWEEN %s AND %s
 		GROUP BY DATE_FORMAT(payout_date, '%%Y-%%m')
 		ORDER BY month_label
@@ -330,7 +330,7 @@ def get_monthly_charges_trend(company=None):
 	result = frappe.db.sql("""
 		SELECT DATE_FORMAT(payout_date, '%%Y-%%m') as month_label,
 		       IFNULL(SUM(delivery_charges_deducted), 0) as total
-		FROM `tabCourier Payout Log`
+		FROM `tabCourier Payout`
 		WHERE payout_date BETWEEN %s AND %s
 		GROUP BY DATE_FORMAT(payout_date, '%%Y-%%m')
 		ORDER BY month_label

@@ -400,8 +400,8 @@ def get_payout_log_charge(delivery_order_name):
 		res = frappe.db.sql(
 			"""
 			SELECT cpl.delivery_charges_deducted
-			FROM `tabCourier Payout Log Item` cpli
-			JOIN `tabCourier Payout Log` cpl ON cpl.name = cpli.parent
+			FROM `tabCourier Payout Item` cpli
+			JOIN `tabCourier Payout` cpl ON cpl.name = cpli.parent
 			WHERE cpli.delivery_order = %s
 			LIMIT 1
 			""",

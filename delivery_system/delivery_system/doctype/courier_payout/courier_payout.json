@@ -86,7 +86,7 @@
    "fieldname": "linked_journal_entries",
    "fieldtype": "Table",
    "label": "Linked Journal Entries",
-   "options": "Courier Payout Log Item"
+   "options": "Courier Payout Item"
   },
   {
    "collapsible": 1,
@@ -106,7 +106,7 @@
  "modified": "2026-07-28 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Delivery System",
- "name": "Courier Payout Log",
+ "name": "Courier Payout",
  "owner": "Administrator",
  "permissions": [
   {

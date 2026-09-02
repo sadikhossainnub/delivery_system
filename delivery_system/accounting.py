@@ -282,7 +282,7 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 
 	1. Payment Entry: Dr Bank / Cr Clearing Account
 	2. Journal Entry for Delivery Charges: Dr Delivery Charges / Cr Clearing Account
-	3. Courier Payout Log
+	3. Courier Payout
 	"""
 	payment_id = str(payout_data.get("payment_id") or payout_data.get("id") or "")
 	gross_amount = flt(payout_data.get("gross_amount") or payout_data.get("amount") or 0)
@@ -293,7 +293,7 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 		return {"success": False, "error": "Missing payment_id"}
 
 	# Check duplicate log
-	if frappe.db.exists("Courier Payout Log", {"payment_id": payment_id}):
+	if frappe.db.exists("Courier Payout", {"payment_id": payment_id}):
 		return {"success": True, "message": "Payout already logged"}
 
 	default_provider = frappe.db.get_single_value("Courier Settings", "default_provider")
@@ -307,7 +307,7 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 
 	payout_log = frappe.get_doc(
 		{
-			"doctype": "Courier Payout Log",
+			"doctype": "Courier Payout",
 			"courier_provider": provider_name,
 			"payment_id": payment_id,
 			"payout_date": payout_data.get("payment_date") or today(),

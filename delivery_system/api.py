@@ -258,12 +258,12 @@ def get_delivery_charge(
 		except Exception:
 			pass
 
-	# 3. Check Courier Payout Log
+	# 3. Check Courier Payout
 	res = frappe.db.sql(
 		"""
 		SELECT cpl.delivery_charges_deducted
-		FROM `tabCourier Payout Log Item` cpli
-		JOIN `tabCourier Payout Log` cpl ON cpl.name = cpli.parent
+		FROM `tabCourier Payout Item` cpli
+		JOIN `tabCourier Payout` cpl ON cpl.name = cpli.parent
 		WHERE cpli.delivery_order = %s
 		LIMIT 1
 		""",

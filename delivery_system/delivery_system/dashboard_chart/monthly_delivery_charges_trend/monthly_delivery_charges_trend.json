@@ -6,7 +6,7 @@
  "currency": "BDT",
  "docstatus": 0,
  "doctype": "Dashboard Chart",
- "document_type": "Courier Payout Log",
+ "document_type": "Courier Payout",
  "dynamic_filters_json": "[]",
  "filters_json": "[]",
  "group_by_type": "Sum",

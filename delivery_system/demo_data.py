@@ -3,7 +3,7 @@
 
 """
 Demo data generator for Delivery System app.
-Creates realistic Customers, Sales Orders, Delivery Orders, Courier Payout Logs,
+Creates realistic Customers, Sales Orders, Delivery Orders, Courier Payouts,
 and GL accounts to populate ERPNext Desk, Reports, Number Cards, and Dashboard Charts.
 """
 
@@ -37,7 +37,7 @@ def generate_demo_data(reset_existing=False):
 		# 5. Create Demo Sales Orders & Delivery Orders
 		delivery_orders = _create_demo_orders(company, customers, item_code)
 
-		# 6. Create Demo Courier Payout Logs
+		# 6. Create Demo Courier Payouts
 		_create_demo_payout_logs(company, delivery_orders)
 
 		frappe.db.commit()
@@ -338,7 +338,7 @@ def _create_demo_orders(company, customers, item_code):
 
 
 def _create_demo_payout_logs(company, delivery_orders):
-	"""Create demo Courier Payout Log records."""
+	"""Create demo Courier Payout records."""
 	delivered_orders = [d for d in delivery_orders if d.delivery_status == "delivered" and d.payment_reconciled]
 	if not delivered_orders:
 		return
@@ -350,7 +350,7 @@ def _create_demo_payout_logs(company, delivery_orders):
 	net1 = gross1 - charges1
 
 	payout1 = frappe.get_doc({
-		"doctype": "Courier Payout Log",
+		"doctype": "Courier Payout",
 		"courier_provider": "Steadfast",
 		"payment_id": "CPL-PAYOUT-001",
 		"payout_date": today(),
@@ -379,7 +379,7 @@ def _create_demo_payout_logs(company, delivery_orders):
 def _cleanup_existing_demo_data():
 	"""Optional cleanup of previous demo records."""
 	frappe.db.sql("DELETE FROM `tabDelivery Order` WHERE invoice_reference LIKE 'INV-10%'")
-	frappe.db.sql("DELETE FROM `tabCourier Payout Log` WHERE payment_id LIKE 'CPL-PAYOUT-%'")
+	frappe.db.sql("DELETE FROM `tabCourier Payout` WHERE payment_id LIKE 'CPL-PAYOUT-%'")
 
 
 def _ensure_company() -> str:

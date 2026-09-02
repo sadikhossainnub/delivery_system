@@ -119,7 +119,7 @@ def notify_stuck_deliveries():
 
 
 def sync_courier_payouts():
-	"""Scheduled job: fetch payout statements from courier APIs and auto-create Courier Payout Log records."""
+	"""Scheduled job: fetch payout statements from courier APIs and auto-create Courier Payout records."""
 	settings = frappe.get_single("Courier Settings")
 	if not settings.enable_accounting_automation:
 		return
@@ -149,7 +149,7 @@ def sync_courier_payouts():
 			if not payment_id:
 				continue
 
-			if frappe.db.exists("Courier Payout Log", {"payment_id": payment_id}):
+			if frappe.db.exists("Courier Payout", {"payment_id": payment_id}):
 				continue
 
 			cid = str(p.get("consignment_id") or p.get("cid") or "").strip()
