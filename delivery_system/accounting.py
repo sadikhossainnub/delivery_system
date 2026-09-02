@@ -138,10 +138,14 @@ def ensure_default_accounts_and_mode_of_payment(company: str) -> dict:
 
 
 def post_clearing_entry(delivery_order_doc) -> str | None:
-	"""Post Journal Entry moving COD amount from Customer Debtors → Clearing Account.
+	"""Post Payment Entry (Receive) moving COD amount from Sales Invoice → Clearing Account.
 
-	Dr Steadfast Clearing Account   cod_amount
-	    Cr Debtors (Customer)         cod_amount
+	Creates a Payment Entry of type Receive linked to the Sales Invoice so the
+	invoice is automatically marked as paid:
+
+	Dr  Steadfast Clearing Account   cod_amount
+	    Cr  Debtors (Customer)            cod_amount
+	    (references: Sales Invoice → allocated_amount = cod_amount)
 	"""
 	if delivery_order_doc.clearing_entry_posted or flt(delivery_order_doc.cod_amount) <= 0:
 		return None
@@ -166,123 +170,135 @@ def post_clearing_entry(delivery_order_doc) -> str | None:
 		return None
 
 	cod_amt = flt(delivery_order_doc.cod_amount)
+	mode_of_payment = acc_config.get("default_mode_of_payment") or "Steadfast COD"
 	remarks = f"Auto-posted by delivery_system - Consignment {delivery_order_doc.consignment_id or delivery_order_doc.name}"
+
+	# Resolve the Sales Invoice to link payment against
+	sales_invoice = None
+	if delivery_order_doc.reference_doctype and delivery_order_doc.reference_name:
+		sales_invoice = _get_sales_invoice(
+			delivery_order_doc.reference_doctype,
+			delivery_order_doc.reference_name,
+		)
 
 	try:
 		savepoint = "post_clearing_" + delivery_order_doc.name.replace("-", "_")
 		frappe.db.savepoint(savepoint)
 
-		je = frappe.get_doc(
-			{
-				"doctype": "Journal Entry",
-				"voucher_type": "Journal Entry",
+		if sales_invoice and frappe.db.exists("Sales Invoice", sales_invoice):
+			# --- Use ERPNext built-in mapper (same as "Make > Payment" button in UI) ---
+			from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+			pe = get_payment_entry("Sales Invoice", sales_invoice)
+
+			# Override destination account → Steadfast Clearing Account (not Bank)
+			pe.paid_to = clearing_acc
+			pe.received_amount = flt(pe.paid_amount)
+
+			# Adjust allocated amount to cod_amount if different from invoice outstanding
+			if pe.references:
+				pe.references[0].allocated_amount = flt(
+					min(cod_amt, pe.references[0].outstanding_amount or cod_amt)
+				)
+				pe.paid_amount = pe.references[0].allocated_amount
+				pe.received_amount = pe.references[0].allocated_amount
+
+			pe.mode_of_payment = mode_of_payment
+			pe.reference_no = delivery_order_doc.consignment_id or delivery_order_doc.name
+			pe.reference_date = today()
+			pe.remarks = remarks
+			pe.posting_date = today()
+
+		else:
+			# --- Fallback: no Sales Invoice yet, build manually ---
+			pe = frappe.get_doc({
+				"doctype": "Payment Entry",
+				"payment_type": "Receive",
 				"company": company,
 				"posting_date": today(),
-				"user_remark": remarks,
-				"accounts": [
-					{
-						"account": clearing_acc,
-						"debit_in_account_currency": cod_amt,
-						"credit_in_account_currency": 0,
-					},
-					{
-						"account": debtors_acc,
-						"party_type": "Customer",
-						"party": customer,
-						"debit_in_account_currency": 0,
-						"credit_in_account_currency": cod_amt,
-					},
-				],
-			}
-		)
-		je.insert(ignore_permissions=True)
-		je.submit()
+				"mode_of_payment": mode_of_payment,
+				"party_type": "Customer",
+				"party": customer,
+				"paid_to": clearing_acc,
+				"paid_amount": cod_amt,
+				"received_amount": cod_amt,
+				"reference_no": delivery_order_doc.consignment_id or delivery_order_doc.name,
+				"reference_date": today(),
+				"remarks": remarks,
+			})
+
+		pe.insert(ignore_permissions=True)
+		pe.submit()
 
 		frappe.db.set_value(
 			"Delivery Order",
 			delivery_order_doc.name,
 			{
 				"clearing_entry_posted": 1,
-				"clearing_journal_entry": je.name,
+				"clearing_journal_entry": pe.name,
 			},
 		)
 
-		_append_log(delivery_order_doc.name, "accounting", f"Posted clearing Journal Entry {je.name}")
-		return je.name
+		_append_log(delivery_order_doc.name, "accounting", f"Posted clearing Payment Entry {pe.name} (Invoice: {sales_invoice or 'N/A'})")
+		return pe.name
 	except Exception as exc:
 		frappe.db.rollback(to_savepoint=savepoint)
 		frappe.log_error(frappe.get_traceback(), "post_clearing_entry")
-		_append_log(delivery_order_doc.name, "error", f"Failed to post clearing entry: {exc}")
+		_append_log(delivery_order_doc.name, "error", f"Failed to post clearing Payment Entry: {exc}")
 		return None
 
 
 def reverse_clearing_entry(delivery_order_doc) -> str | None:
-	"""Reverse clearing entry when Delivery Order is cancelled post-clearing.
+	"""Cancel the clearing Payment Entry when Delivery Order is cancelled.
 
-	Dr Debtors (Customer)          cod_amount
-	    Cr Steadfast Clearing Account  cod_amount
+	Cancelling the Payment Entry automatically reverses the Sales Invoice
+	payment and restores the Debtors balance.
 	"""
 	if not delivery_order_doc.clearing_entry_posted or delivery_order_doc.reversal_journal_entry:
 		return None
 
-	company = _get_company(delivery_order_doc)
-	acc_config = get_accounting_settings(company)
-	clearing_acc = acc_config["clearing_account"]
-
-	customer, debtors_acc = _get_customer_and_receivable_account(delivery_order_doc, company)
-	if not customer or not debtors_acc or not clearing_acc:
+	pe_name = delivery_order_doc.clearing_journal_entry
+	if not pe_name:
 		return None
 
-	cod_amt = flt(delivery_order_doc.cod_amount)
-	remarks = f"Auto-reversal by delivery_system - Order Cancelled {delivery_order_doc.name}"
-
 	try:
-		je = frappe.get_doc(
-			{
-				"doctype": "Journal Entry",
-				"voucher_type": "Journal Entry",
-				"company": company,
-				"posting_date": today(),
-				"user_remark": remarks,
-				"accounts": [
-					{
-						"account": debtors_acc,
-						"party_type": "Customer",
-						"party": customer,
-						"debit_in_account_currency": cod_amt,
-						"credit_in_account_currency": 0,
-					},
-					{
-						"account": clearing_acc,
-						"debit_in_account_currency": 0,
-						"credit_in_account_currency": cod_amt,
-					},
-				],
-			}
-		)
-		je.insert(ignore_permissions=True)
-		je.submit()
-
-		frappe.db.set_value(
-			"Delivery Order",
-			delivery_order_doc.name,
-			{"reversal_journal_entry": je.name},
-		)
-
-		_append_log(delivery_order_doc.name, "accounting", f"Posted reversal Journal Entry {je.name}")
-		return je.name
+		# Cancel the Payment Entry — ERPNext auto-reverses the GL and invoice link
+		if frappe.db.exists("Payment Entry", pe_name):
+			pe = frappe.get_doc("Payment Entry", pe_name)
+			if pe.docstatus == 1:
+				pe.cancel()
+				frappe.db.set_value(
+					"Delivery Order",
+					delivery_order_doc.name,
+					{"reversal_journal_entry": pe_name},
+				)
+				_append_log(delivery_order_doc.name, "accounting", f"Cancelled clearing Payment Entry {pe_name}")
+				return pe_name
+		# Fallback: check if it was a Journal Entry (legacy)
+		elif frappe.db.exists("Journal Entry", pe_name):
+			je = frappe.get_doc("Journal Entry", pe_name)
+			if je.docstatus == 1:
+				je.cancel()
+				frappe.db.set_value(
+					"Delivery Order",
+					delivery_order_doc.name,
+					{"reversal_journal_entry": pe_name},
+				)
 	except Exception as exc:
 		frappe.log_error(frappe.get_traceback(), "reverse_clearing_entry")
 		_append_log(delivery_order_doc.name, "error", f"Failed to reverse clearing entry: {exc}")
-		return None
+	return None
 
 
 def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
-	"""Process courier payout and create Payment Entry + Payout Log.
+	"""Process courier payout: create Bank JE to clear the Clearing Account + Courier Payout log.
 
-	1. Payment Entry: Dr Bank / Cr Clearing Account
-	2. Journal Entry for Delivery Charges: Dr Delivery Charges / Cr Clearing Account
-	3. Courier Payout
+	When the courier transfers the net COD amount to the company's bank:
+	1. Journal Entry:
+	       Dr  Bank Account                net_amount
+	       Dr  Delivery Charges            charge_amount
+	           Cr  Steadfast Clearing Account  gross_amount
+	2. Courier Payout log (linked to Delivery Orders)
 	"""
 	payment_id = str(payout_data.get("payment_id") or payout_data.get("id") or "")
 	gross_amount = flt(payout_data.get("gross_amount") or payout_data.get("amount") or 0)
@@ -292,36 +308,82 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 	if not payment_id:
 		return {"success": False, "error": "Missing payment_id"}
 
-	# Check duplicate log
+	# Check duplicate
 	if frappe.db.exists("Courier Payout", {"payment_id": payment_id}):
 		return {"success": True, "message": "Payout already logged"}
 
 	default_provider = frappe.db.get_single_value("Courier Settings", "default_provider")
 	provider_name = default_provider or "Steadfast"
-	company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
+	company = (
+		frappe.defaults.get_user_default("Company")
+		or frappe.db.get_single_value("Global Defaults", "default_company")
+	)
 
 	acc_config = get_accounting_settings(company)
 	clearing_acc = acc_config["clearing_account"]
 	charge_acc = acc_config["delivery_charge_account"]
-	mode_of_payment = acc_config["default_mode_of_payment"] or "Steadfast COD"
 
-	payout_log = frappe.get_doc(
-		{
-			"doctype": "Courier Payout",
-			"courier_provider": provider_name,
-			"payment_id": payment_id,
-			"payout_date": payout_data.get("payment_date") or today(),
-			"gross_amount": gross_amount,
-			"delivery_charges_deducted": charge_amount,
-			"net_amount": net_amount,
-			"reconciliation_status": "Complete",
-			"raw_response": json.dumps(payout_data, ensure_ascii=False)[:5000],
-		}
-	)
+	# --- 1. Journal Entry: Bank + Delivery Charges / Clearing Account ---
+	payout_je_name = None
+	if clearing_acc and frappe.db.exists("Account", clearing_acc):
+		try:
+			bank_acc = _get_default_bank_account(company)
+			je_accounts = []
+
+			if bank_acc and net_amount > 0:
+				je_accounts.append({
+					"account": bank_acc,
+					"debit_in_account_currency": net_amount,
+					"credit_in_account_currency": 0,
+				})
+
+			if charge_acc and charge_amount > 0 and frappe.db.exists("Account", charge_acc):
+				je_accounts.append({
+					"account": charge_acc,
+					"debit_in_account_currency": charge_amount,
+					"credit_in_account_currency": 0,
+				})
+
+			if je_accounts:
+				je_accounts.append({
+					"account": clearing_acc,
+					"debit_in_account_currency": 0,
+					"credit_in_account_currency": gross_amount,
+				})
+				je = frappe.get_doc({
+					"doctype": "Journal Entry",
+					"voucher_type": "Journal Entry",
+					"company": company,
+					"posting_date": payout_data.get("payment_date") or today(),
+					"user_remark": f"Courier payout settlement - Payment ID {payment_id}",
+					"accounts": je_accounts,
+				})
+				je.insert(ignore_permissions=True)
+				je.submit()
+				payout_je_name = je.name
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "post_payout_entries.je")
+
+	# --- 2. Courier Payout log ---
+	payout_log = frappe.get_doc({
+		"doctype": "Courier Payout",
+		"courier_provider": provider_name,
+		"payment_id": payment_id,
+		"payout_date": payout_data.get("payment_date") or today(),
+		"gross_amount": gross_amount,
+		"delivery_charges_deducted": charge_amount,
+		"net_amount": net_amount,
+		"reconciliation_status": "Complete",
+		"raw_response": json.dumps(payout_data, ensure_ascii=False)[:5000],
+	})
 
 	linked_items = []
 	for do in matched_orders:
-		linked_items.append({"delivery_order": do.name, "amount": flt(do.cod_amount)})
+		linked_items.append({
+			"delivery_order": do.name,
+			"journal_entry": payout_je_name,
+			"amount": flt(do.cod_amount),
+		})
 		frappe.db.set_value(
 			"Delivery Order",
 			do.name,
@@ -331,9 +393,14 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 	payout_log.linked_journal_entries = linked_items
 	payout_log.insert(ignore_permissions=True)
 
+	# Store the payout JE reference on the log
+	if payout_je_name:
+		frappe.db.set_value("Courier Payout", payout_log.name, "linked_payment_entry", payout_je_name)
+
 	return {
 		"success": True,
 		"payout_log": payout_log.name,
+		"payout_journal_entry": payout_je_name,
 		"payment_id": payment_id,
 	}
 
@@ -402,6 +469,83 @@ def post_variance_entry(delivery_order_doc, variance_amount: float) -> str | Non
 # ---------------------------------------------------------------------------
 # Internal Helpers
 # ---------------------------------------------------------------------------
+
+
+def _get_sales_invoice(reference_doctype: str, reference_name: str) -> str | None:
+	"""Find the submitted Sales Invoice linked to a Sales Order or Delivery Note.
+
+	Child table rows (Sales Invoice Item / Delivery Note Item) do not have their
+	own reliable docstatus; we fetch the parent name first and then verify the
+	parent Sales Invoice docstatus separately.
+	"""
+	try:
+		if reference_doctype == "Sales Order":
+			# Step 1: find any Sales Invoice that billed this SO
+			sinv_name = frappe.db.get_value(
+				"Sales Invoice Item",
+				{"sales_order": reference_name},
+				"parent",
+			)
+			# Step 2: confirm the invoice itself is submitted
+			if sinv_name and frappe.db.get_value("Sales Invoice", sinv_name, "docstatus") == 1:
+				return sinv_name
+
+		elif reference_doctype == "Delivery Note":
+			# Step 1a: via Delivery Note Item → against_sales_invoice
+			sinv_name = frappe.db.get_value(
+				"Delivery Note Item",
+				{"parent": reference_name},
+				"against_sales_invoice",
+			)
+			if sinv_name and frappe.db.get_value("Sales Invoice", sinv_name, "docstatus") == 1:
+				return sinv_name
+
+			# Step 1b: fallback via Sales Invoice header field
+			sinv_name = frappe.db.get_value(
+				"Sales Invoice",
+				{"delivery_doc_no": reference_name, "docstatus": 1},
+				"name",
+			)
+			if sinv_name:
+				return sinv_name
+
+	except Exception:
+		pass
+	return None
+
+
+def _get_default_bank_account(company: str) -> str | None:
+	"""Get the default bank account for a company.
+
+	Priority:
+	1. Company.default_bank_account
+	2. Mode of Payment 'Steadfast COD' default account for company
+	3. First non-group Bank-type account for company
+	"""
+	try:
+		# Priority 1: company default
+		bank_acc = frappe.db.get_value("Company", company, "default_bank_account")
+		if bank_acc:
+			return bank_acc
+
+		# Priority 2: via Mode of Payment account mapping
+		mop_acc = frappe.db.get_value(
+			"Mode of Payment Account",
+			{"parent": "Steadfast COD", "company": company},
+			"default_account",
+		)
+		if mop_acc:
+			return mop_acc
+
+		# Priority 3: first non-group Bank account for company
+		bank_acc = frappe.db.get_value(
+			"Account",
+			{"company": company, "account_type": "Bank", "is_group": 0},
+			"name",
+		)
+		return bank_acc or None
+	except Exception:
+		return None
 
 
 def _get_company(do_doc) -> str:

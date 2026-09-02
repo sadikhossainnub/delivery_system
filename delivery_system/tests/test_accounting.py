@@ -14,6 +14,7 @@ import frappe
 if not getattr(frappe.local, "site", None):
 	frappe._ = lambda msg, *args, **kwargs: msg
 	frappe.logger = lambda *a, **k: MagicMock()
+	frappe.utils.today = lambda: "2026-09-02"
 
 	def _mock_throw(msg, exc=frappe.ValidationError, *args, **kwargs):
 		if isinstance(exc, type) and issubclass(exc, Exception):
@@ -27,6 +28,9 @@ if not getattr(frappe.local, "site", None):
 	frappe.defaults = MagicMock()
 	frappe.defaults.get_user_default.return_value = "Test Company"
 	frappe.get_cached_value = lambda *a, **k: "TC"
+	frappe.get_system_settings = lambda *a, **k: False
+	frappe.session = MagicMock()
+	frappe.session.user = "Administrator"
 
 import frappe.tests
 
