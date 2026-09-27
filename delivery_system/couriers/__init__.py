@@ -96,6 +96,25 @@ class BaseCourierClient(ABC):
 	def get_payment(self, payment_id: str) -> dict:
 		raise NotImplementedError
 
+	def ping(self) -> dict:
+		raise NotImplementedError
+
+	def bulk_create_extended(self, orders: list[dict]) -> list[dict] | dict:
+		raise NotImplementedError
+
+	def get_status_with_return_status(self, consignment_id: str) -> dict:
+		raise NotImplementedError
+
+	def get_trackings_by_invoice(self, invoice: str) -> dict | list:
+		raise NotImplementedError
+
+	def create_pickup_request(self, address_id: str | int | None = None, note: str = "", **kwargs) -> dict:
+		raise NotImplementedError
+
+	def fraud_check(self, phone: str) -> dict:
+		raise NotImplementedError
+
+
 
 # ---------------------------------------------------------------------------
 # Provider registry — maps provider_code → module path

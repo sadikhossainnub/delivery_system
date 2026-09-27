@@ -86,7 +86,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Delivery Status",
-   "options": "\npending\nin_review\ndelivered_approval_pending\npartial_delivered_approval_pending\ncancelled_approval_pending\nunknown_approval_pending\ndelivered\npartial_delivered\ncancelled\nhold\nunknown",
+   "options": "\npending\nin_review\ndelivered_approval_pending\npartial_delivered_approval_pending\ncancelled_approval_pending\nunknown_approval_pending\ndelivered\npartial_delivered\ncancelled\nhold\nexceptional\nunknown\npartial_delivered_return_proccessing\npartial_delivered_return_rider_assigned\npartial_delivered_return_received\ncancelled_return_proccessing\ncancelled_return_rider_assigned\ncancelled_return_received",
    "default": "pending",
    "read_only": 1
   },

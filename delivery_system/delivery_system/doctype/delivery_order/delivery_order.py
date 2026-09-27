@@ -14,10 +14,16 @@ VALID_STATUSES = {
 	"", "pending", "in_review", "delivered_approval_pending",
 	"partial_delivered_approval_pending", "cancelled_approval_pending",
 	"unknown_approval_pending",
-	"delivered", "partial_delivered", "cancelled", "hold", "unknown",
+	"delivered", "partial_delivered", "cancelled", "hold", "exceptional", "unknown",
+	"partial_delivered_return_proccessing",
+	"partial_delivered_return_rider_assigned",
+	"partial_delivered_return_received",
+	"cancelled_return_proccessing",
+	"cancelled_return_rider_assigned",
+	"cancelled_return_received",
 }
 BD_PHONE_REGEX = re.compile(r"^01[3-9]\d{8}$")
-MAX_ADDRESS_LEN = 250
+MAX_ADDRESS_LEN = 490
 MAX_RAW_RESPONSE_LEN = 5000  # cap stored JSON to avoid DB bloat
 
 

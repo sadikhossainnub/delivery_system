@@ -18,7 +18,13 @@ VALID_STATUSES = {
 	"", "pending", "in_review", "delivered_approval_pending",
 	"partial_delivered_approval_pending", "cancelled_approval_pending",
 	"unknown_approval_pending",
-	"delivered", "partial_delivered", "cancelled", "hold", "unknown",
+	"delivered", "partial_delivered", "cancelled", "hold", "exceptional", "unknown",
+	"partial_delivered_return_proccessing",
+	"partial_delivered_return_rider_assigned",
+	"partial_delivered_return_received",
+	"cancelled_return_proccessing",
+	"cancelled_return_rider_assigned",
+	"cancelled_return_received",
 }
 
 
@@ -426,17 +432,65 @@ def get_courier_balance(provider_code: str = "steadfast") -> dict:
 
 @frappe.whitelist()
 def test_courier_connection(provider_code: str = "steadfast") -> dict:
-	"""Test API connection with the courier by fetching balance."""
+	"""Test API connection with the courier via ping or balance check."""
 	if not frappe.has_permission("Courier Settings", "read"):
 		frappe.throw(_("Insufficient permission."), frappe.PermissionError)
 
 	try:
 		client = get_client(provider_code)
+		if hasattr(client, "ping"):
+			ping_res = client.ping()
+			if ping_res:
+				return {"success": True, "ping": ping_res}
 		bal = client.get_balance()
 		current_balance = bal.get("current_balance") if "current_balance" in bal else bal.get("balance", 0)
 		return {"success": True, "balance": current_balance}
 	except Exception as exc:
 		return {"success": False, "error": str(exc)}
+
+
+@frappe.whitelist()
+def ping_courier(provider_code: str = "steadfast") -> dict:
+	"""Perform GET /ping service check without needing API credentials."""
+	try:
+		client = get_client(provider_code)
+		return client.ping()
+	except Exception as exc:
+		frappe.throw(_("Ping failed: {0}").format(str(exc)))
+
+
+@frappe.whitelist()
+def check_fraud_score(phone: str, provider_code: str = "steadfast") -> dict:
+	"""Check customer delivery record and fraud score by phone number."""
+	_check_permission("read")
+	try:
+		client = get_client(provider_code)
+		return client.fraud_check(phone)
+	except Exception as exc:
+		frappe.throw(_("Fraud check failed: {0}").format(str(exc)))
+
+
+@frappe.whitelist()
+def get_trackings_by_invoice(invoice: str, provider_code: str = "steadfast") -> dict | list:
+	"""Fetch step-by-step parcel movement history by invoice reference."""
+	_check_permission("read")
+	try:
+		client = get_client(provider_code)
+		return client.get_trackings_by_invoice(invoice)
+	except Exception as exc:
+		frappe.throw(_("Failed to fetch tracking history: {0}").format(str(exc)))
+
+
+@frappe.whitelist()
+def create_pickup_request(address_id: str | int | None = None, note: str = "", provider_code: str = "steadfast") -> dict:
+	"""Ask courier rider to collect parcels from registered address."""
+	_check_permission("create")
+	try:
+		client = get_client(provider_code)
+		return client.create_pickup_request(address_id=address_id, note=note)
+	except Exception as exc:
+		frappe.throw(_("Failed to create pickup request: {0}").format(str(exc)))
+
 
 
 @frappe.whitelist()

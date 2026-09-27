@@ -73,7 +73,7 @@ class TestSteadfastClient(unittest.TestCase):
 		from delivery_system.couriers.steadfast import Client
 
 		c = self._make_client()
-		long_address = "A" * 300
+		long_address = "A" * 600
 		order_data = {
 			"invoice": "INV-001",
 			"recipient_name": "Test",
@@ -82,7 +82,7 @@ class TestSteadfastClient(unittest.TestCase):
 			"cod_amount": 500,
 		}
 		payload = c._build_order_payload(order_data)
-		self.assertEqual(len(payload["recipient_address"]), 250)
+		self.assertEqual(len(payload["recipient_address"]), 490)
 
 	def test_address_within_limit_unchanged(self):
 		from delivery_system.couriers.steadfast import Client
@@ -350,9 +350,99 @@ class TestSteadfastClient(unittest.TestCase):
 			self.assertEqual(rows[0]["cod_collection_fee"], 10.0)
 			self.assertEqual(rows[0]["net_margin"], 915.0)
 
+	def test_text_sanitization(self):
+		from delivery_system.couriers.steadfast import Client, _clean_text
+
+		cleaned = _clean_text("Address {with} <disallowed> ; $ chars")
+		self.assertEqual(cleaned, "Address  with   disallowed      chars")
+
+	@patch("delivery_system.couriers.steadfast.requests.get")
+	def test_ping_success(self, mock_get):
+		mock_response = MagicMock()
+		mock_response.ok = True
+		mock_response.json.return_value = {"status": 200, "message": "Pong!"}
+		mock_get.return_value = mock_response
+
+		c = self._make_client()
+		res = c.ping()
+		self.assertEqual(res["message"], "Pong!")
+		called_url = mock_get.call_args[0][0]
+		self.assertEqual(called_url, "https://portal.packzy.com/api/v1/ping")
+
+	@patch("delivery_system.couriers.steadfast.requests.post")
+	def test_bulk_create_extended(self, mock_post):
+		mock_response = MagicMock()
+		mock_response.ok = True
+		mock_response.json.return_value = {"status": 200, "data": [{"invoice": "INV-001", "status": "created"}]}
+		mock_post.return_value = mock_response
+
+		c = self._make_client()
+		orders = [{"invoice": "INV-001", "recipient_name": "User", "recipient_phone": "01712345678", "recipient_address": "Dhaka"}]
+		res = c.bulk_create_extended(orders)
+		self.assertEqual(res["status"], 200)
+		called_url = mock_post.call_args[0][0]
+		self.assertIn("/create_order/bulk-order/extended", called_url)
+
+	@patch("delivery_system.couriers.steadfast.requests.get")
+	def test_get_status_with_return_status(self, mock_get):
+		mock_response = MagicMock()
+		mock_response.ok = True
+		mock_response.json.return_value = {
+			"consignment_id": "CID999",
+			"delivery_status": "cancelled",
+			"return_status": "cancelled_return_rider_assigned",
+		}
+		mock_get.return_value = mock_response
+
+		c = self._make_client()
+		res = c.get_status_with_return_status("CID999")
+		self.assertEqual(res["delivery_status"], "cancelled")
+		self.assertEqual(res["return_status"], "cancelled_return_rider_assigned")
+		called_url = mock_get.call_args[0][0]
+		self.assertIn("/status_with_return_status_by_cid/CID999", called_url)
+
+	@patch("delivery_system.couriers.steadfast.requests.get")
+	def test_get_trackings_by_invoice(self, mock_get):
+		mock_response = MagicMock()
+		mock_response.ok = True
+		mock_response.json.return_value = {"status": 200, "trackings": [{"status": "in_review"}, {"status": "delivered"}]}
+		mock_get.return_value = mock_response
+
+		c = self._make_client()
+		res = c.get_trackings_by_invoice("INV-789")
+		self.assertEqual(res["status"], 200)
+		called_url = mock_get.call_args[0][0]
+		self.assertIn("/trackings_by_invoice/INV-789", called_url)
+
+	@patch("delivery_system.couriers.steadfast.requests.post")
+	def test_create_pickup_request(self, mock_post):
+		mock_response = MagicMock()
+		mock_response.ok = True
+		mock_response.json.return_value = {"status": 200, "message": "Pickup requested"}
+		mock_post.return_value = mock_response
+
+		c = self._make_client()
+		res = c.create_pickup_request(address_id="123", note="Pickup 5 parcels")
+		self.assertEqual(res["status"], 200)
+		called_url = mock_post.call_args[0][0]
+		self.assertIn("/create_pickup_request", called_url)
+
+	@patch("delivery_system.couriers.steadfast.requests.get")
+	def test_fraud_check(self, mock_get):
+		mock_response = MagicMock()
+		mock_response.ok = True
+		mock_response.json.return_value = {"status": 200, "score": 95, "total_delivered": 10}
+		mock_get.return_value = mock_response
+
+		c = self._make_client()
+		res = c.fraud_check("01712345678")
+		self.assertEqual(res["score"], 95)
+		called_url = mock_get.call_args[0][0]
+		self.assertIn("/fraud_check/score/01712345678", called_url)
 
 
 if __name__ == "__main__":
 	unittest.main()
+
 
 
