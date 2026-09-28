@@ -118,7 +118,9 @@ class DeliveryOrder(Document):
 		if self.courier_provider:
 			provider_code = frappe.db.get_value("Courier Provider", self.courier_provider, "provider_code") or ""
 
-		if provider_code == "steadfast" or not provider_code:
+		if provider_code in ("manual", "local"):
+			return f"/app/delivery-order/{self.name}"
+		elif provider_code == "steadfast" or not provider_code:
 			return f"https://steadfast.com.bd/t/{code}"
 		elif provider_code == "pathao":
 			return f"https://pathao.com/tracking/?consignment_id={code}"

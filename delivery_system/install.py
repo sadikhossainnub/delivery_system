@@ -20,6 +20,7 @@ from frappe import _
 def after_install():
 	"""Run full accounting setup and custom fields creation after app installation."""
 	frappe.logger("delivery_system").info("Delivery System: running after_install setup …")
+	_ensure_manual_courier_provider()
 	_create_courier_custom_fields()
 	_setup_all_companies()
 	_sync_existing_reference_links()
@@ -29,6 +30,7 @@ def after_install():
 
 def after_migrate():
 	"""Re-run accounting setup and custom fields creation on every migrate (idempotent)."""
+	_ensure_manual_courier_provider()
 	_create_courier_custom_fields()
 	_setup_all_companies()
 	_sync_existing_reference_links()
@@ -326,4 +328,22 @@ def _sync_existing_reference_links():
 					)
 				except Exception:
 					pass
+
+
+def _ensure_manual_courier_provider():
+	"""Ensure Manual Delivery Courier Provider record exists in DB."""
+	if not frappe.db.exists("Courier Provider", {"provider_code": "manual"}):
+		try:
+			doc = frappe.get_doc({
+				"doctype": "Courier Provider",
+				"name": "Manual Delivery",
+				"courier_name": "Manual / Internal Delivery",
+				"provider_code": "manual",
+				"enabled": 1,
+				"base_url": "",
+			})
+			doc.insert(ignore_permissions=True)
+		except Exception:
+			pass
+
 

@@ -34,8 +34,16 @@ class CourierSettings(Document):
 				continue
 			if provider.provider_code != provider_code:
 				continue
-			if company and account.company != company:
-				continue
+			if provider.provider_code in ("manual", "local"):
+				return {
+					"api_key": "manual",
+					"secret_key": "manual",
+					"webhook_secret": account.webhook_secret or None,
+					"webhook_url": account.webhook_url or None,
+					"base_url": provider.base_url or "",
+					"company": account.company,
+					"courier_provider": account.courier_provider,
+				}
 
 			secret_val = get_decrypted_password(
 				"Courier Account", account.name, fieldname="secret_key", raise_exception=False

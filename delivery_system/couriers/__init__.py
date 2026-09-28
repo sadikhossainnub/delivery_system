@@ -124,6 +124,8 @@ REGISTRY: dict[str, str] = {
 	"steadfast": "delivery_system.couriers.steadfast",
 	"pathao": "delivery_system.couriers.pathao",
 	"redx": "delivery_system.couriers.redx",
+	"manual": "delivery_system.couriers.manual",
+	"local": "delivery_system.couriers.manual",
 }
 
 
@@ -148,6 +150,15 @@ def get_client(provider_code: str, company: str | None = None) -> BaseCourierCli
 	settings = frappe.get_single("Courier Settings")
 	credentials = settings.get_account(provider_code, company)
 
+	if not credentials and provider_code in ("manual", "local"):
+		credentials = {
+			"api_key": "manual",
+			"secret_key": "manual",
+			"base_url": "",
+			"company": company or "",
+			"courier_provider": "Manual Delivery",
+		}
+
 	if not credentials:
 		frappe.throw(
 			frappe._(
@@ -168,3 +179,4 @@ def get_client(provider_code: str, company: str | None = None) -> BaseCourierCli
 		secret_key=credentials["secret_key"],
 		base_url=credentials["base_url"],
 	)
+

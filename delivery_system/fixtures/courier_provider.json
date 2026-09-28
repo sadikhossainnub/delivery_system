@@ -6,5 +6,13 @@
   "provider_code": "steadfast",
   "enabled": 1,
   "base_url": "https://portal.packzy.com/api/v1"
+ },
+ {
+  "doctype": "Courier Provider",
+  "name": "Manual Delivery",
+  "courier_name": "Manual / Internal Delivery",
+  "provider_code": "manual",
+  "enabled": 1,
+  "base_url": ""
  }
 ]
