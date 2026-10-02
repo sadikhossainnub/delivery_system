@@ -190,9 +190,9 @@ class DeliveryOrder(Document):
 		# Accounting integration triggers
 		try:
 			from delivery_system.accounting import post_clearing_entry, reverse_clearing_entry
-			if new_status == "delivered":
+			if new_status in ("delivered", "partial_delivered"):
 				post_clearing_entry(self)
-			elif new_status in ("cancelled", "partial_delivered") and getattr(self, "clearing_entry_posted", 0):
+			elif new_status == "cancelled" and getattr(self, "clearing_entry_posted", 0):
 				reverse_clearing_entry(self)
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), "DeliveryOrder.update_status.accounting")
