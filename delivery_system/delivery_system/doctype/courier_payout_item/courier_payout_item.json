@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "delivery_order",
+  "payment_entry",
   "journal_entry",
   "amount"
  ],
@@ -18,9 +19,15 @@
    "options": "Delivery Order"
   },
   {
-   "fieldname": "journal_entry",
+   "fieldname": "payment_entry",
    "fieldtype": "Link",
    "in_list_view": 1,
+   "label": "Payment Entry",
+   "options": "Payment Entry"
+  },
+  {
+   "fieldname": "journal_entry",
+   "fieldtype": "Link",
    "label": "Journal Entry",
    "options": "Journal Entry"
   },

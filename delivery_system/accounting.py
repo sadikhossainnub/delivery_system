@@ -137,17 +137,18 @@ def ensure_default_accounts_and_mode_of_payment(company: str) -> dict:
 	}
 
 
-def post_clearing_entry(delivery_order_doc) -> str | None:
-	"""Post Payment Entry (Receive) moving COD amount from Sales Invoice → Clearing Account.
+def post_clearing_entry(
+	delivery_order_doc, force: bool = False, auto_create_invoice: bool = True
+) -> str | None:
+	"""Post Payment Entry (Receive) allocating COD amount against the linked Sales Invoice.
 
-	Creates a Payment Entry of type Receive linked to the Sales Invoice so the
-	invoice is automatically marked as paid:
-
-	Dr  Steadfast Clearing Account   cod_amount
-	    Cr  Debtors (Customer)            cod_amount
-	    (references: Sales Invoice → allocated_amount = cod_amount)
+	Ensures:
+	1. The linked Sales Invoice is resolved or auto-created.
+	2. A Payment Entry (Type: Receive) is posted with references to the Sales Invoice.
+	3. The Sales Invoice outstanding amount is reduced and marked as Paid.
 	"""
-	if delivery_order_doc.clearing_entry_posted or flt(delivery_order_doc.cod_amount) <= 0:
+	cod_amt = flt(delivery_order_doc.cod_amount)
+	if cod_amt <= 0:
 		return None
 
 	company = _get_company(delivery_order_doc)
@@ -166,42 +167,99 @@ def post_clearing_entry(delivery_order_doc) -> str | None:
 		return None
 
 	customer, debtors_acc = _get_customer_and_receivable_account(delivery_order_doc, company)
-	if not customer or not debtors_acc:
+	if not customer:
 		return None
 
-	cod_amt = flt(delivery_order_doc.cod_amount)
+	# Resolve or create the linked Sales Invoice
+	sales_invoice = get_or_create_sales_invoice(delivery_order_doc, auto_create=auto_create_invoice)
+
+	# Check if already paid with a linked invoice
+	if delivery_order_doc.clearing_entry_posted and not force:
+		existing_pe = getattr(delivery_order_doc, "clearing_journal_entry", None)
+		if existing_pe and frappe.db.exists("Payment Entry", existing_pe):
+			has_inv_ref = frappe.db.get_value(
+				"Payment Entry Reference",
+				{"parent": existing_pe, "reference_doctype": "Sales Invoice"},
+				"name",
+			)
+			if has_inv_ref:
+				return existing_pe
+
+	# If there was an old unallocated clearing Payment Entry, cancel it to avoid double-charging
+	existing_pe = getattr(delivery_order_doc, "clearing_journal_entry", None)
+	if existing_pe and frappe.db.exists("Payment Entry", existing_pe):
+		try:
+			old_pe = frappe.get_doc("Payment Entry", existing_pe)
+			if old_pe.docstatus == 1:
+				has_inv_ref = any(r.reference_doctype == "Sales Invoice" for r in (old_pe.references or []))
+				if not has_inv_ref and sales_invoice:
+					old_pe.cancel()
+		except Exception:
+			pass
+
 	mode_of_payment = acc_config.get("default_mode_of_payment") or "Steadfast COD"
 	remarks = f"Auto-posted by delivery_system - Consignment {delivery_order_doc.consignment_id or delivery_order_doc.name}"
-
-	# Resolve the Sales Invoice to link payment against
-	sales_invoice = None
-	if delivery_order_doc.reference_doctype and delivery_order_doc.reference_name:
-		sales_invoice = _get_sales_invoice(
-			delivery_order_doc.reference_doctype,
-			delivery_order_doc.reference_name,
-		)
 
 	try:
 		savepoint = "post_clearing_" + delivery_order_doc.name.replace("-", "_")
 		frappe.db.savepoint(savepoint)
 
+		pe = None
 		if sales_invoice and frappe.db.exists("Sales Invoice", sales_invoice):
-			# --- Use ERPNext built-in mapper (same as "Make > Payment" button in UI) ---
-			from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+			sinv_doc = frappe.get_doc("Sales Invoice", sales_invoice)
+			outstanding = flt(sinv_doc.outstanding_amount)
 
-			pe = get_payment_entry("Sales Invoice", sales_invoice)
-
-			# Override destination account → Steadfast Clearing Account (not Bank)
-			pe.paid_to = clearing_acc
-			pe.received_amount = flt(pe.paid_amount)
-
-			# Adjust allocated amount to cod_amount if different from invoice outstanding
-			if pe.references:
-				pe.references[0].allocated_amount = flt(
-					min(cod_amt, pe.references[0].outstanding_amount or cod_amt)
+			if outstanding <= 0:
+				frappe.db.set_value(
+					"Delivery Order",
+					delivery_order_doc.name,
+					{"clearing_entry_posted": 1},
 				)
-				pe.paid_amount = pe.references[0].allocated_amount
-				pe.received_amount = pe.references[0].allocated_amount
+				_append_log(delivery_order_doc.name, "accounting", f"Linked Sales Invoice {sales_invoice} is already fully paid.")
+				return sales_invoice
+
+			allocated_amt = flt(min(cod_amt, outstanding))
+
+			# 1. Try ERPNext standard mapper
+			try:
+				from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+				pe = get_payment_entry("Sales Invoice", sales_invoice)
+				pe.paid_to = clearing_acc
+				pe.paid_amount = allocated_amt
+				pe.received_amount = allocated_amt
+				if pe.references:
+					pe.references[0].allocated_amount = allocated_amt
+					pe.references[0].outstanding_amount = outstanding
+			except Exception:
+				pe = None
+
+			# 2. Manual fallback with explicit references to the Sales Invoice
+			if not pe:
+				pe = frappe.get_doc({
+					"doctype": "Payment Entry",
+					"payment_type": "Receive",
+					"company": company,
+					"posting_date": today(),
+					"mode_of_payment": mode_of_payment,
+					"party_type": "Customer",
+					"party": customer,
+					"paid_from": sinv_doc.debit_to or debtors_acc,
+					"paid_to": clearing_acc,
+					"paid_amount": allocated_amt,
+					"received_amount": allocated_amt,
+					"reference_no": delivery_order_doc.consignment_id or delivery_order_doc.name,
+					"reference_date": today(),
+					"remarks": remarks,
+					"references": [
+						{
+							"reference_doctype": "Sales Invoice",
+							"reference_name": sales_invoice,
+							"total_amount": sinv_doc.grand_total,
+							"outstanding_amount": outstanding,
+							"allocated_amount": allocated_amt,
+						}
+					],
+				})
 
 			pe.mode_of_payment = mode_of_payment
 			pe.reference_no = delivery_order_doc.consignment_id or delivery_order_doc.name
@@ -239,7 +297,11 @@ def post_clearing_entry(delivery_order_doc) -> str | None:
 			},
 		)
 
-		_append_log(delivery_order_doc.name, "accounting", f"Posted clearing Payment Entry {pe.name} (Invoice: {sales_invoice or 'N/A'})")
+		_append_log(
+			delivery_order_doc.name,
+			"accounting",
+			f"Posted clearing Payment Entry {pe.name} applied to Sales Invoice {sales_invoice or 'N/A'}"
+		)
 		return pe.name
 	except Exception as exc:
 		frappe.db.rollback(to_savepoint=savepoint)
@@ -323,46 +385,79 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 	clearing_acc = acc_config["clearing_account"]
 	charge_acc = acc_config["delivery_charge_account"]
 
-	# --- 1. Journal Entry: Bank + Delivery Charges / Clearing Account ---
-	payout_je_name = None
+	# --- 1. Settlement Payment Entry: Clearing Account -> Bank Account with Delivery Charges ---
+	payout_pe_name = None
 	if clearing_acc and frappe.db.exists("Account", clearing_acc):
-		try:
-			bank_acc = _get_default_bank_account(company)
-			je_accounts = []
+		bank_acc = _get_default_bank_account(company)
+		cost_center = frappe.get_cached_value("Company", company, "cost_center") if company else None
 
-			if bank_acc and net_amount > 0:
-				je_accounts.append({
-					"account": bank_acc,
-					"debit_in_account_currency": net_amount,
-					"credit_in_account_currency": 0,
-				})
-
-			if charge_acc and charge_amount > 0 and frappe.db.exists("Account", charge_acc):
-				je_accounts.append({
-					"account": charge_acc,
-					"debit_in_account_currency": charge_amount,
-					"credit_in_account_currency": 0,
-				})
-
-			if je_accounts:
-				je_accounts.append({
-					"account": clearing_acc,
-					"debit_in_account_currency": 0,
-					"credit_in_account_currency": gross_amount,
-				})
-				je = frappe.get_doc({
-					"doctype": "Journal Entry",
-					"voucher_type": "Journal Entry",
+		# Try creating Payment Entry (Internal Transfer)
+		if bank_acc and frappe.db.exists("Account", bank_acc):
+			try:
+				pe = frappe.get_doc({
+					"doctype": "Payment Entry",
+					"payment_type": "Internal Transfer",
 					"company": company,
 					"posting_date": payout_data.get("payment_date") or today(),
-					"user_remark": f"Courier payout settlement - Payment ID {payment_id}",
-					"accounts": je_accounts,
+					"paid_from": clearing_acc,
+					"paid_to": bank_acc,
+					"paid_amount": gross_amount,
+					"received_amount": net_amount,
+					"reference_no": payment_id,
+					"reference_date": payout_data.get("payment_date") or today(),
+					"remarks": f"Courier payout settlement - Payment ID {payment_id}",
 				})
-				je.insert(ignore_permissions=True)
-				je.submit()
-				payout_je_name = je.name
-		except Exception:
-			frappe.log_error(frappe.get_traceback(), "post_payout_entries.je")
+
+				if charge_acc and charge_amount > 0 and frappe.db.exists("Account", charge_acc):
+					pe.append("deductions", {
+						"account": charge_acc,
+						"cost_center": cost_center,
+						"amount": charge_amount,
+					})
+
+				pe.insert(ignore_permissions=True)
+				pe.submit()
+				payout_pe_name = pe.name
+			except Exception as exc:
+				frappe.log_error(frappe.get_traceback(), "post_payout_entries.payment_entry")
+
+		# Fallback to Journal Entry if Payment Entry fails (e.g. account restrictions)
+		if not payout_pe_name:
+			try:
+				je_accounts = []
+				if bank_acc and net_amount > 0:
+					je_accounts.append({
+						"account": bank_acc,
+						"debit_in_account_currency": net_amount,
+						"credit_in_account_currency": 0,
+					})
+
+				if charge_acc and charge_amount > 0 and frappe.db.exists("Account", charge_acc):
+					je_accounts.append({
+						"account": charge_acc,
+						"debit_in_account_currency": charge_amount,
+						"credit_in_account_currency": 0,
+					})
+
+				if je_accounts:
+					je_accounts.append({
+						"account": clearing_acc,
+						"debit_in_account_currency": 0,
+						"credit_in_account_currency": gross_amount,
+					})
+					je = frappe.get_doc({
+						"doctype": "Journal Entry",
+						"voucher_type": "Journal Entry",
+						"company": company,
+						"posting_date": payout_data.get("payment_date") or today(),
+						"user_remark": f"Courier payout settlement - Payment ID {payment_id}",
+						"accounts": je_accounts,
+					})
+					je.insert(ignore_permissions=True)
+					je.submit()
+					payout_pe_name = je.name
+			except Exception:
+				frappe.log_error(frappe.get_traceback(), "post_payout_entries.je_fallback")
 
 	# --- 2. Courier Payout log ---
 	payout_log = frappe.get_doc({
@@ -379,11 +474,19 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 
 	linked_items = []
 	for do in matched_orders:
-		linked_items.append({
+		do_doc = frappe.get_doc("Delivery Order", do.name) if isinstance(do.name, str) else do
+		clearing_pe = getattr(do_doc, "clearing_journal_entry", None)
+
+		item_dict = {
 			"delivery_order": do.name,
-			"journal_entry": payout_je_name,
+			"journal_entry": clearing_pe or payout_pe_name,
 			"amount": flt(do.cod_amount),
-		})
+		}
+		# If payment_entry field exists on Courier Payout Item
+		if clearing_pe or payout_pe_name:
+			item_dict["payment_entry"] = clearing_pe or payout_pe_name
+
+		linked_items.append(item_dict)
 		frappe.db.set_value(
 			"Delivery Order",
 			do.name,
@@ -393,14 +496,15 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 	payout_log.linked_journal_entries = linked_items
 	payout_log.insert(ignore_permissions=True)
 
-	# Store the payout JE reference on the log
-	if payout_je_name:
-		frappe.db.set_value("Courier Payout", payout_log.name, "linked_payment_entry", payout_je_name)
+	# Store the payout Payment Entry reference on the log
+	if payout_pe_name:
+		frappe.db.set_value("Courier Payout", payout_log.name, "linked_payment_entry", payout_pe_name)
 
 	return {
 		"success": True,
 		"payout_log": payout_log.name,
-		"payout_journal_entry": payout_je_name,
+		"payout_payment_entry": payout_pe_name,
+		"payout_journal_entry": payout_pe_name,
 		"payment_id": payment_id,
 	}
 
@@ -471,47 +575,215 @@ def post_variance_entry(delivery_order_doc, variance_amount: float) -> str | Non
 # ---------------------------------------------------------------------------
 
 
-def _get_sales_invoice(reference_doctype: str, reference_name: str) -> str | None:
-	"""Find the submitted Sales Invoice linked to a Sales Order or Delivery Note.
+def _find_existing_sales_invoice(delivery_order_doc) -> str | None:
+	"""Exhaustively find any existing Sales Invoice linked to this Delivery Order."""
+	ref_dt = getattr(delivery_order_doc, "reference_doctype", None)
+	ref_name = getattr(delivery_order_doc, "reference_name", None)
+	inv_ref = getattr(delivery_order_doc, "invoice_reference", None)
 
-	Child table rows (Sales Invoice Item / Delivery Note Item) do not have their
-	own reliable docstatus; we fetch the parent name first and then verify the
-	parent Sales Invoice docstatus separately.
-	"""
-	try:
-		if reference_doctype == "Sales Order":
-			# Step 1: find any Sales Invoice that billed this SO
-			sinv_name = frappe.db.get_value(
-				"Sales Invoice Item",
-				{"sales_order": reference_name},
-				"parent",
+	# 1. Direct match: invoice_reference is an existing Sales Invoice
+	if inv_ref and frappe.db.exists("Sales Invoice", inv_ref):
+		sinv = frappe.get_doc("Sales Invoice", inv_ref)
+		if sinv.docstatus == 0:
+			try:
+				sinv.submit()
+			except Exception:
+				pass
+		if sinv.docstatus == 1:
+			return sinv.name
+
+	# 2. Direct reference is Sales Invoice
+	if ref_dt == "Sales Invoice" and ref_name and frappe.db.exists("Sales Invoice", ref_name):
+		sinv = frappe.get_doc("Sales Invoice", ref_name)
+		if sinv.docstatus == 0:
+			try:
+				sinv.submit()
+			except Exception:
+				pass
+		if sinv.docstatus == 1:
+			return sinv.name
+
+	# 3. Delivery Note reference
+	if ref_dt == "Delivery Note" and ref_name:
+		# 3a. Sales Invoice Item where delivery_note == ref_name (standard ERPNext DN -> SI)
+		sinv_names = frappe.db.sql(
+			"""
+			SELECT DISTINCT parent
+			FROM `tabSales Invoice Item`
+			WHERE delivery_note = %s
+			ORDER BY creation DESC
+			""",
+			(ref_name,),
+			as_dict=True,
+		)
+		for row in sinv_names:
+			sinv = frappe.get_doc("Sales Invoice", row.parent)
+			if sinv.docstatus == 0:
+				try:
+					sinv.submit()
+				except Exception:
+					pass
+			if sinv.docstatus == 1:
+				return sinv.name
+
+		# 3b. Sales Invoice header where delivery_doc_no == ref_name
+		sinv_names = frappe.db.sql(
+			"""
+			SELECT name FROM `tabSales Invoice`
+			WHERE delivery_doc_no = %s
+			ORDER BY creation DESC
+			""",
+			(ref_name,),
+			as_dict=True,
+		)
+		for row in sinv_names:
+			sinv = frappe.get_doc("Sales Invoice", row.name)
+			if sinv.docstatus == 0:
+				try:
+					sinv.submit()
+				except Exception:
+					pass
+			if sinv.docstatus == 1:
+				return sinv.name
+
+		# 3c. Delivery Note Item where against_sales_invoice is set
+		sinv_name = frappe.db.get_value("Delivery Note Item", {"parent": ref_name}, "against_sales_invoice")
+		if sinv_name and frappe.db.exists("Sales Invoice", sinv_name):
+			sinv = frappe.get_doc("Sales Invoice", sinv_name)
+			if sinv.docstatus == 0:
+				try:
+					sinv.submit()
+				except Exception:
+					pass
+			if sinv.docstatus == 1:
+				return sinv.name
+
+		# 3d. Check if Delivery Note is against a Sales Order, and find SO's invoice
+		dn_so = frappe.db.get_value("Delivery Note", ref_name, "against_sales_order") or frappe.db.get_value(
+			"Delivery Note Item", {"parent": ref_name}, "against_sales_order"
+		)
+		if dn_so:
+			sinv_names = frappe.db.sql(
+				"""
+				SELECT DISTINCT parent FROM `tabSales Invoice Item`
+				WHERE sales_order = %s ORDER BY creation DESC
+				""",
+				(dn_so,),
+				as_dict=True,
 			)
-			# Step 2: confirm the invoice itself is submitted
-			if sinv_name and frappe.db.get_value("Sales Invoice", sinv_name, "docstatus") == 1:
-				return sinv_name
+			for row in sinv_names:
+				sinv = frappe.get_doc("Sales Invoice", row.parent)
+				if sinv.docstatus == 0:
+					try:
+						sinv.submit()
+					except Exception:
+						pass
+				if sinv.docstatus == 1:
+					return sinv.name
 
-		elif reference_doctype == "Delivery Note":
-			# Step 1a: via Delivery Note Item → against_sales_invoice
-			sinv_name = frappe.db.get_value(
-				"Delivery Note Item",
-				{"parent": reference_name},
-				"against_sales_invoice",
+	# 4. Sales Order reference
+	if ref_dt == "Sales Order" and ref_name:
+		# 4a. Direct Sales Invoice Item with sales_order == ref_name
+		sinv_names = frappe.db.sql(
+			"""
+			SELECT DISTINCT parent
+			FROM `tabSales Invoice Item`
+			WHERE sales_order = %s
+			ORDER BY creation DESC
+			""",
+			(ref_name,),
+			as_dict=True,
+		)
+		for row in sinv_names:
+			sinv = frappe.get_doc("Sales Invoice", row.parent)
+			if sinv.docstatus == 0:
+				try:
+					sinv.submit()
+				except Exception:
+					pass
+			if sinv.docstatus == 1:
+				return sinv.name
+
+		# 4b. Find Delivery Notes created for this Sales Order -> check their Sales Invoices
+		dn_list = frappe.db.sql(
+			"""
+			SELECT DISTINCT parent FROM `tabDelivery Note Item`
+			WHERE against_sales_order = %s OR sales_order = %s
+			""",
+			(ref_name, ref_name),
+			as_dict=True,
+		)
+		for dn_row in dn_list:
+			sinv_names = frappe.db.sql(
+				"""
+				SELECT DISTINCT parent FROM `tabSales Invoice Item`
+				WHERE delivery_note = %s ORDER BY creation DESC
+				""",
+				(dn_row.parent,),
+				as_dict=True,
 			)
-			if sinv_name and frappe.db.get_value("Sales Invoice", sinv_name, "docstatus") == 1:
-				return sinv_name
+			for row in sinv_names:
+				sinv = frappe.get_doc("Sales Invoice", row.parent)
+				if sinv.docstatus == 0:
+					try:
+						sinv.submit()
+					except Exception:
+						pass
+				if sinv.docstatus == 1:
+					return sinv.name
 
-			# Step 1b: fallback via Sales Invoice header field
-			sinv_name = frappe.db.get_value(
-				"Sales Invoice",
-				{"delivery_doc_no": reference_name, "docstatus": 1},
-				"name",
-			)
-			if sinv_name:
-				return sinv_name
-
-	except Exception:
-		pass
 	return None
+
+
+def get_or_create_sales_invoice(delivery_order_doc, auto_create: bool = True) -> str | None:
+	"""Exhaustively find or auto-create the submitted Sales Invoice linked to a Delivery Order."""
+	# 1. Search existing invoices
+	try:
+		sinv_name = _find_existing_sales_invoice(delivery_order_doc)
+		if sinv_name:
+			return sinv_name
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "get_or_create_sales_invoice.search")
+
+	if not auto_create:
+		return None
+
+	# 2. Auto-generate from reference document if none found
+	ref_dt = getattr(delivery_order_doc, "reference_doctype", None)
+	ref_name = getattr(delivery_order_doc, "reference_name", None)
+
+	if not (ref_dt and ref_name and frappe.db.exists(ref_dt, ref_name)):
+		return None
+
+	try:
+		sinv = None
+		if ref_dt == "Sales Order":
+			from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+			sinv = make_sales_invoice(ref_name)
+		elif ref_dt == "Delivery Note":
+			from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice
+			sinv = make_sales_invoice(ref_name)
+
+		if sinv:
+			sinv.posting_date = today()
+			sinv.insert(ignore_permissions=True)
+			sinv.submit()
+			_append_log(
+				delivery_order_doc.name,
+				"accounting",
+				f"Auto-created and submitted Sales Invoice {sinv.name} from {ref_dt} {ref_name}",
+			)
+			return sinv.name
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "get_or_create_sales_invoice.auto_create")
+
+	return None
+
+
+def _get_sales_invoice(reference_doctype: str, reference_name: str) -> str | None:
+	"""Legacy alias for finding sales invoice."""
+	mock_doc = frappe._dict({"reference_doctype": reference_doctype, "reference_name": reference_name})
+	return _find_existing_sales_invoice(mock_doc)
 
 
 def _get_default_bank_account(company: str) -> str | None:

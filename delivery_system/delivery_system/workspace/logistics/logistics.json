@@ -121,6 +121,11 @@
    "label": "Courier Settings",
    "link_to": "Courier Settings",
    "type": "DocType"
+  },
+  {
+   "label": "Import Courier Payout",
+   "link_to": "import-courier-payout",
+   "type": "Page"
   }
  ],
  "title": "Delivery System"
