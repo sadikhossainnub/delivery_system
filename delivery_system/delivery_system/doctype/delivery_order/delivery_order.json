@@ -1,7 +1,7 @@
 {
  "actions": [],
  "autoname": "DS-.YYYY.-.#####",
- "creation": "2026-07-28 00:00:00.000000",
+ "creation": "2026-07-28 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -24,18 +24,27 @@
   "note",
   "section_courier_response",
   "consignment_id",
-  "tracking_code",
   "tracking_url",
   "column_break_courier",
+  "tracking_code",
+  "accounting_tab",
+  "pending_payment_entry",
   "payment_reconciled",
   "reconciled_payment_id",
+  "clearing_payment_entry",
+  "column_break_rayj",
   "clearing_entry_posted",
-  "clearing_journal_entry",
+  "accounting_error",
   "reversal_journal_entry",
+  "reversal_payment_entry",
+  "clearing_journal_entry",
+  "api_data_tab",
   "section_raw",
   "raw_response",
   "section_logs",
-  "delivery_logs"
+  "delivery_logs",
+  "amended_from",
+  "connections_tab"
  ],
  "fields": [
   {
@@ -77,17 +86,16 @@
    "fieldname": "invoice_reference",
    "fieldtype": "Data",
    "label": "Invoice Reference",
-   "read_only": 0,
    "unique": 1
   },
   {
+   "default": "pending",
    "fieldname": "delivery_status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Delivery Status",
    "options": "\npending\nin_review\ndelivered_approval_pending\npartial_delivered_approval_pending\ncancelled_approval_pending\nunknown_approval_pending\ndelivered\npartial_delivered\ncancelled\nhold\nexceptional\nunknown\npartial_delivered_return_proccessing\npartial_delivered_return_rider_assigned\npartial_delivered_return_received\ncancelled_return_proccessing\ncancelled_return_rider_assigned\ncancelled_return_received",
-   "default": "pending",
    "read_only": 1
   },
   {
@@ -126,11 +134,11 @@
    "reqd": 1
   },
   {
+   "default": "Home Delivery",
    "fieldname": "delivery_type",
    "fieldtype": "Select",
    "label": "Delivery Type",
-   "options": "Home Delivery\nPoint Delivery",
-   "default": "Home Delivery"
+   "options": "Home Delivery\nPoint Delivery"
   },
   {
    "fieldname": "section_order",
@@ -170,8 +178,8 @@
    "fieldname": "tracking_url",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "options": "URL",
    "label": "Tracking Link",
+   "options": "URL",
    "read_only": 1
   },
   {
@@ -199,17 +207,45 @@
    "read_only": 1
   },
   {
+   "fieldname": "clearing_payment_entry",
+   "fieldtype": "Link",
+   "label": "Clearing Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
    "fieldname": "clearing_journal_entry",
    "fieldtype": "Link",
-   "label": "Clearing Journal Entry",
+   "label": "Clearing Journal Entry (Legacy)",
    "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reversal_payment_entry",
+   "fieldtype": "Link",
+   "label": "Reversal Payment Entry",
+   "options": "Payment Entry",
    "read_only": 1
   },
   {
    "fieldname": "reversal_journal_entry",
    "fieldtype": "Link",
-   "label": "Reversal Journal Entry",
+   "label": "Reversal Journal Entry (Legacy)",
    "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "accounting_error",
+   "fieldtype": "Check",
+   "label": "Accounting Error - Needs Manual Review",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "pending_payment_entry",
+   "fieldtype": "Check",
+   "label": "Pending Payment Entry (Waiting for Sales Invoice)",
    "read_only": 1
   },
   {
@@ -236,17 +272,50 @@
    "label": "Delivery Logs",
    "options": "Delivery Order Log",
    "read_only": 1
+  },
+  {
+   "fieldname": "accounting_tab",
+   "fieldtype": "Tab Break",
+   "label": "Accounting"
+  },
+  {
+   "fieldname": "column_break_rayj",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "api_data_tab",
+   "fieldtype": "Tab Break",
+   "label": "API Data"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Delivery Order",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "connections_tab",
+   "fieldtype": "Tab Break",
+   "label": "Connections",
+   "show_dashboard": 1
   }
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-07-28 00:00:00.000000",
+ "modified": "2026-10-27 23:20:01.613290",
  "modified_by": "Administrator",
  "module": "Delivery System",
  "name": "Delivery Order",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -257,11 +326,11 @@
    "role": "Delivery Manager",
    "share": 1,
    "submit": 1,
-   "cancel": 1,
-   "write": 1,
-   "amend": 1
+   "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -272,9 +341,7 @@
    "role": "System Manager",
    "share": 1,
    "submit": 1,
-   "cancel": 1,
-   "write": 1,
-   "amend": 1
+   "write": 1
   },
   {
    "create": 1,
@@ -287,6 +354,7 @@
    "share": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

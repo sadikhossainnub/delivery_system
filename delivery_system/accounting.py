@@ -19,6 +19,7 @@ def get_accounting_settings(company: str | None = None) -> dict:
 	settings = frappe.get_single("Courier Settings")
 	enabled = bool(settings.enable_accounting_automation)
 	threshold = flt(settings.variance_threshold_auto_post or 50.0)
+	auto_create_invoice = bool(settings.get("auto_create_sales_invoice", 0))
 
 	account_config = None
 	if company:
@@ -33,6 +34,7 @@ def get_accounting_settings(company: str | None = None) -> dict:
 	return {
 		"enabled": enabled,
 		"threshold": threshold,
+		"auto_create_invoice": auto_create_invoice,
 		"company": company or (account_config.company if account_config else frappe.defaults.get_user_default("Company")),
 		"clearing_account": account_config.clearing_account if account_config else None,
 		"delivery_charge_account": account_config.delivery_charge_account if account_config else None,
@@ -146,6 +148,7 @@ def post_clearing_entry(
 	1. The linked Sales Invoice is resolved or auto-created.
 	2. A Payment Entry (Type: Receive) is posted with references to the Sales Invoice.
 	3. The Sales Invoice outstanding amount is reduced and marked as Paid.
+	4. NEVER creates unlinked Payment Entries.
 	"""
 	cod_amt = flt(delivery_order_doc.cod_amount)
 	if cod_amt <= 0:
@@ -163,112 +166,177 @@ def post_clearing_entry(
 		clearing_acc = defaults["clearing_account"]
 
 	if not clearing_acc or not frappe.db.exists("Account", clearing_acc):
-		frappe.logger("delivery_system").warning(f"No clearing account configured for {company}")
+		error_msg = f"No clearing account configured for {company}"
+		frappe.logger("delivery_system").warning(error_msg)
+		_mark_accounting_error(delivery_order_doc.name, error_msg)
 		return None
 
 	customer, debtors_acc = _get_customer_and_receivable_account(delivery_order_doc, company)
 	if not customer:
+		error_msg = f"Cannot determine customer for Delivery Order {delivery_order_doc.name}"
+		_mark_accounting_error(delivery_order_doc.name, error_msg)
 		return None
 
-	# Resolve or create the linked Sales Invoice
-	sales_invoice = get_or_create_sales_invoice(delivery_order_doc, auto_create=auto_create_invoice)
-
-	# Check if already paid with a linked invoice
+	# Check if already posted successfully with new field structure
 	if delivery_order_doc.clearing_entry_posted and not force:
-		existing_pe = getattr(delivery_order_doc, "clearing_journal_entry", None)
+		# Check new Payment Entry field first
+		existing_pe = getattr(delivery_order_doc, "clearing_payment_entry", None)
 		if existing_pe and frappe.db.exists("Payment Entry", existing_pe):
-			has_inv_ref = frappe.db.get_value(
-				"Payment Entry Reference",
-				{"parent": existing_pe, "reference_doctype": "Sales Invoice"},
-				"name",
-			)
-			if has_inv_ref:
-				return existing_pe
+			pe_doc = frappe.get_doc("Payment Entry", existing_pe)
+			if pe_doc.docstatus == 1:
+				# Check if it has Sales Invoice reference
+				has_inv_ref = any(r.reference_doctype == "Sales Invoice" for r in (pe_doc.references or []))
+				if has_inv_ref:
+					return existing_pe
+		
+		# Check legacy Journal Entry field
+		existing_je = getattr(delivery_order_doc, "clearing_journal_entry", None)
+		if existing_je:
+			if frappe.db.exists("Journal Entry", existing_je):
+				je_doc = frappe.get_doc("Journal Entry", existing_je)
+				if je_doc.docstatus == 1:
+					# Legacy entry exists and is valid
+					frappe.log_error(
+						f"Delivery Order {delivery_order_doc.name} has legacy Journal Entry {existing_je}. "
+						f"Consider recreating as Payment Entry for better SI linking.",
+						"post_clearing_entry.legacy_je"
+					)
+					if not force:
+						return existing_je
+			elif frappe.db.exists("Payment Entry", existing_je):
+				# Old data where PE was stored in JE field - migrate it
+				pe_doc = frappe.get_doc("Payment Entry", existing_je)
+				if pe_doc.docstatus == 1:
+					frappe.db.set_value("Delivery Order", delivery_order_doc.name, 
+									  "clearing_payment_entry", existing_je)
+					has_inv_ref = any(r.reference_doctype == "Sales Invoice" for r in (pe_doc.references or []))
+					if has_inv_ref:
+						return existing_je
 
-	# If there was an old unallocated clearing Payment Entry, cancel it to avoid double-charging
-	existing_pe = getattr(delivery_order_doc, "clearing_journal_entry", None)
-	if existing_pe and frappe.db.exists("Payment Entry", existing_pe):
-		try:
-			old_pe = frappe.get_doc("Payment Entry", existing_pe)
-			if old_pe.docstatus == 1:
-				has_inv_ref = any(r.reference_doctype == "Sales Invoice" for r in (old_pe.references or []))
-				if not has_inv_ref and sales_invoice:
-					old_pe.cancel()
-		except Exception:
-			pass
+	# CRITICAL: Always ensure Sales Invoice exists first
+	# Respect the auto_create_invoice setting from Courier Settings
+	auto_create = auto_create_invoice and acc_config.get("auto_create_invoice", False)
+	sales_invoice = get_or_create_sales_invoice(delivery_order_doc, auto_create=auto_create)
+	
+	if not sales_invoice:
+		# Cannot create PE without SI - mark as pending
+		error_msg = (
+			f"Cannot create Payment Entry for Delivery Order {delivery_order_doc.name}: "
+			f"No Sales Invoice found or could be created. Please create Sales Invoice manually."
+		)
+		frappe.log_error(error_msg, "post_clearing_entry.no_sales_invoice")
+		
+		frappe.db.set_value(
+			"Delivery Order",
+			delivery_order_doc.name,
+			{
+				"pending_payment_entry": 1,
+				"accounting_error": 1,
+			},
+		)
+		_append_log(
+			delivery_order_doc.name,
+			"accounting",
+			"Waiting for Sales Invoice before creating Payment Entry"
+		)
+		
+		# Notify user
+		_notify_accounting_error(delivery_order_doc.name, error_msg)
+		return None
 
-	mode_of_payment = acc_config.get("default_mode_of_payment") or "Steadfast COD"
-	remarks = f"Auto-posted by delivery_system - Consignment {delivery_order_doc.consignment_id or delivery_order_doc.name}"
+	# Load Sales Invoice and validate
+	if not frappe.db.exists("Sales Invoice", sales_invoice):
+		error_msg = f"Sales Invoice {sales_invoice} not found"
+		_mark_accounting_error(delivery_order_doc.name, error_msg)
+		return None
+	
+	sinv_doc = frappe.get_doc("Sales Invoice", sales_invoice)
+	outstanding = flt(sinv_doc.outstanding_amount)
+
+	if outstanding <= 0:
+		# Already fully paid
+		frappe.db.set_value(
+			"Delivery Order",
+			delivery_order_doc.name,
+			{
+				"clearing_entry_posted": 1,
+				"pending_payment_entry": 0,
+				"accounting_error": 0,
+			},
+		)
+		_append_log(
+			delivery_order_doc.name, 
+			"accounting", 
+			f"Linked Sales Invoice {sales_invoice} is already fully paid."
+		)
+		return sales_invoice
+
+	# Check for duplicate Payment Entry for this Sales Invoice from this Delivery Order
+	existing_pe_check = frappe.db.sql("""
+		SELECT pe.name, per.allocated_amount
+		FROM `tabPayment Entry` pe
+		INNER JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
+		WHERE pe.docstatus = 1
+		  AND pe.reference_no = %s
+		  AND per.reference_doctype = 'Sales Invoice'
+		  AND per.reference_name = %s
+		LIMIT 1
+	""", (delivery_order_doc.consignment_id or delivery_order_doc.name, sales_invoice), as_dict=True)
+	
+	if existing_pe_check and not force:
+		existing_pe_name = existing_pe_check[0].name
+		frappe.logger("delivery_system").info(
+			f"Payment Entry {existing_pe_name} already exists for SI {sales_invoice} "
+			f"from DO {delivery_order_doc.name}"
+		)
+		# Update DO to point to this PE
+		frappe.db.set_value(
+			"Delivery Order",
+			delivery_order_doc.name,
+			{
+				"clearing_entry_posted": 1,
+				"clearing_payment_entry": existing_pe_name,
+				"pending_payment_entry": 0,
+				"accounting_error": 0,
+			},
+		)
+		return existing_pe_name
+
+	allocated_amt = flt(min(cod_amt, outstanding))
+	mode_of_payment = acc_config.get("default_mode_of_payment")
+	if not mode_of_payment:
+		# Ensure Mode of Payment exists
+		defaults = ensure_default_accounts_and_mode_of_payment(company)
+		mode_of_payment = defaults.get("mode_of_payment") or "Cash"
+	
+	remarks = (
+		f"Auto-posted by delivery_system - DO: {delivery_order_doc.name}, "
+		f"Consignment: {delivery_order_doc.consignment_id or 'N/A'}, "
+		f"SI: {sales_invoice}"
+	)
 
 	try:
 		savepoint = "post_clearing_" + delivery_order_doc.name.replace("-", "_")
 		frappe.db.savepoint(savepoint)
 
 		pe = None
-		if sales_invoice and frappe.db.exists("Sales Invoice", sales_invoice):
-			sinv_doc = frappe.get_doc("Sales Invoice", sales_invoice)
-			outstanding = flt(sinv_doc.outstanding_amount)
+		
+		# Try ERPNext standard mapper first
+		try:
+			from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+			pe = get_payment_entry("Sales Invoice", sales_invoice)
+			pe.paid_to = clearing_acc
+			pe.paid_amount = allocated_amt
+			pe.received_amount = allocated_amt
+			if pe.references:
+				pe.references[0].allocated_amount = allocated_amt
+				pe.references[0].outstanding_amount = outstanding
+		except Exception as e:
+			frappe.log_error(f"Standard mapper failed: {str(e)}", "post_clearing_entry.mapper_failed")
+			pe = None
 
-			if outstanding <= 0:
-				frappe.db.set_value(
-					"Delivery Order",
-					delivery_order_doc.name,
-					{"clearing_entry_posted": 1},
-				)
-				_append_log(delivery_order_doc.name, "accounting", f"Linked Sales Invoice {sales_invoice} is already fully paid.")
-				return sales_invoice
-
-			allocated_amt = flt(min(cod_amt, outstanding))
-
-			# 1. Try ERPNext standard mapper
-			try:
-				from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-				pe = get_payment_entry("Sales Invoice", sales_invoice)
-				pe.paid_to = clearing_acc
-				pe.paid_amount = allocated_amt
-				pe.received_amount = allocated_amt
-				if pe.references:
-					pe.references[0].allocated_amount = allocated_amt
-					pe.references[0].outstanding_amount = outstanding
-			except Exception:
-				pe = None
-
-			# 2. Manual fallback with explicit references to the Sales Invoice
-			if not pe:
-				pe = frappe.get_doc({
-					"doctype": "Payment Entry",
-					"payment_type": "Receive",
-					"company": company,
-					"posting_date": today(),
-					"mode_of_payment": mode_of_payment,
-					"party_type": "Customer",
-					"party": customer,
-					"paid_from": sinv_doc.debit_to or debtors_acc,
-					"paid_to": clearing_acc,
-					"paid_amount": allocated_amt,
-					"received_amount": allocated_amt,
-					"reference_no": delivery_order_doc.consignment_id or delivery_order_doc.name,
-					"reference_date": today(),
-					"remarks": remarks,
-					"references": [
-						{
-							"reference_doctype": "Sales Invoice",
-							"reference_name": sales_invoice,
-							"total_amount": sinv_doc.grand_total,
-							"outstanding_amount": outstanding,
-							"allocated_amount": allocated_amt,
-						}
-					],
-				})
-
-			pe.mode_of_payment = mode_of_payment
-			pe.reference_no = delivery_order_doc.consignment_id or delivery_order_doc.name
-			pe.reference_date = today()
-			pe.remarks = remarks
-			pe.posting_date = today()
-
-		else:
-			# --- Fallback: no Sales Invoice yet, build manually ---
+		# Manual fallback with explicit references to the Sales Invoice
+		if not pe:
 			pe = frappe.get_doc({
 				"doctype": "Payment Entry",
 				"payment_type": "Receive",
@@ -277,36 +345,66 @@ def post_clearing_entry(
 				"mode_of_payment": mode_of_payment,
 				"party_type": "Customer",
 				"party": customer,
+				"paid_from": sinv_doc.debit_to or debtors_acc,
 				"paid_to": clearing_acc,
-				"paid_amount": cod_amt,
-				"received_amount": cod_amt,
+				"paid_amount": allocated_amt,
+				"received_amount": allocated_amt,
 				"reference_no": delivery_order_doc.consignment_id or delivery_order_doc.name,
 				"reference_date": today(),
 				"remarks": remarks,
+				"references": [
+					{
+						"reference_doctype": "Sales Invoice",
+						"reference_name": sales_invoice,
+						"total_amount": sinv_doc.grand_total,
+						"outstanding_amount": outstanding,
+						"allocated_amount": allocated_amt,
+					}
+				],
 			})
+		
+		# Ensure fields are set correctly
+		pe.mode_of_payment = mode_of_payment
+		pe.reference_no = delivery_order_doc.consignment_id or delivery_order_doc.name
+		pe.reference_date = today()
+		pe.remarks = remarks
+		pe.posting_date = today()
 
 		pe.insert(ignore_permissions=True)
 		pe.submit()
 
+		# Update Delivery Order with new field structure
 		frappe.db.set_value(
 			"Delivery Order",
 			delivery_order_doc.name,
 			{
 				"clearing_entry_posted": 1,
-				"clearing_journal_entry": pe.name,
+				"clearing_payment_entry": pe.name,
+				"pending_payment_entry": 0,
+				"accounting_error": 0,
 			},
 		)
 
 		_append_log(
 			delivery_order_doc.name,
 			"accounting",
-			f"Posted clearing Payment Entry {pe.name} applied to Sales Invoice {sales_invoice or 'N/A'}"
+			f"Posted clearing Payment Entry {pe.name} | Allocated: {allocated_amt} | "
+			f"SI: {sales_invoice} | Outstanding reduced to {outstanding - allocated_amt}"
 		)
+		
+		frappe.logger("delivery_system").info(
+			f"Created Payment Entry {pe.name} for DO {delivery_order_doc.name} -> SI {sales_invoice}"
+		)
+		
 		return pe.name
+		
 	except Exception as exc:
 		frappe.db.rollback(to_savepoint=savepoint)
+		error_msg = f"Failed to post clearing Payment Entry: {str(exc)}"
 		frappe.log_error(frappe.get_traceback(), "post_clearing_entry")
-		_append_log(delivery_order_doc.name, "error", f"Failed to post clearing Payment Entry: {exc}")
+		_append_log(delivery_order_doc.name, "error", error_msg)
+		_mark_accounting_error(delivery_order_doc.name, error_msg)
+		_notify_accounting_error(delivery_order_doc.name, error_msg)
 		return None
 
 
@@ -315,40 +413,81 @@ def reverse_clearing_entry(delivery_order_doc) -> str | None:
 
 	Cancelling the Payment Entry automatically reverses the Sales Invoice
 	payment and restores the Debtors balance.
+	
+	Supports both Payment Entry (new) and Journal Entry (legacy).
 	"""
-	if not delivery_order_doc.clearing_entry_posted or delivery_order_doc.reversal_journal_entry:
+	# Check if reversal already done
+	existing_reversal_pe = getattr(delivery_order_doc, "reversal_payment_entry", None)
+	existing_reversal_je = getattr(delivery_order_doc, "reversal_journal_entry", None)
+	if existing_reversal_pe or existing_reversal_je:
+		return existing_reversal_pe or existing_reversal_je
+	
+	if not delivery_order_doc.clearing_entry_posted:
 		return None
 
-	pe_name = delivery_order_doc.clearing_journal_entry
-	if not pe_name:
+	# Get the clearing entry to reverse - check new field first
+	entry_name = getattr(delivery_order_doc, "clearing_payment_entry", None)
+	if not entry_name:
+		# Fallback to legacy field
+		entry_name = getattr(delivery_order_doc, "clearing_journal_entry", None)
+	
+	if not entry_name:
+		frappe.logger("delivery_system").warning(
+			f"No clearing entry found to reverse for DO {delivery_order_doc.name}"
+		)
 		return None
 
 	try:
-		# Cancel the Payment Entry — ERPNext auto-reverses the GL and invoice link
-		if frappe.db.exists("Payment Entry", pe_name):
-			pe = frappe.get_doc("Payment Entry", pe_name)
+		# Try Payment Entry first (new format)
+		if frappe.db.exists("Payment Entry", entry_name):
+			pe = frappe.get_doc("Payment Entry", entry_name)
 			if pe.docstatus == 1:
 				pe.cancel()
 				frappe.db.set_value(
 					"Delivery Order",
 					delivery_order_doc.name,
-					{"reversal_journal_entry": pe_name},
+					{"reversal_payment_entry": entry_name},
 				)
-				_append_log(delivery_order_doc.name, "accounting", f"Cancelled clearing Payment Entry {pe_name}")
-				return pe_name
-		# Fallback: check if it was a Journal Entry (legacy)
-		elif frappe.db.exists("Journal Entry", pe_name):
-			je = frappe.get_doc("Journal Entry", pe_name)
+				_append_log(
+					delivery_order_doc.name, 
+					"accounting", 
+					f"Cancelled clearing Payment Entry {entry_name}"
+				)
+				frappe.logger("delivery_system").info(
+					f"Reversed Payment Entry {entry_name} for DO {delivery_order_doc.name}"
+				)
+				return entry_name
+		
+		# Fallback: check if it's a Journal Entry (legacy)
+		elif frappe.db.exists("Journal Entry", entry_name):
+			je = frappe.get_doc("Journal Entry", entry_name)
 			if je.docstatus == 1:
 				je.cancel()
 				frappe.db.set_value(
 					"Delivery Order",
 					delivery_order_doc.name,
-					{"reversal_journal_entry": pe_name},
+					{"reversal_journal_entry": entry_name},
 				)
+				_append_log(
+					delivery_order_doc.name, 
+					"accounting", 
+					f"Cancelled legacy Journal Entry {entry_name}"
+				)
+				frappe.logger("delivery_system").info(
+					f"Reversed Journal Entry {entry_name} for DO {delivery_order_doc.name}"
+				)
+				return entry_name
+		else:
+			error_msg = f"Clearing entry {entry_name} not found as Payment Entry or Journal Entry"
+			frappe.log_error(error_msg, "reverse_clearing_entry.not_found")
+			_mark_accounting_error(delivery_order_doc.name, error_msg)
+			
 	except Exception as exc:
+		error_msg = f"Failed to reverse clearing entry: {str(exc)}"
 		frappe.log_error(frappe.get_traceback(), "reverse_clearing_entry")
-		_append_log(delivery_order_doc.name, "error", f"Failed to reverse clearing entry: {exc}")
+		_append_log(delivery_order_doc.name, "error", error_msg)
+		_mark_accounting_error(delivery_order_doc.name, error_msg)
+		_notify_accounting_error(delivery_order_doc.name, error_msg)
 	return None
 
 
@@ -869,3 +1008,64 @@ def _append_log(delivery_order_name: str, status: str, message: str):
 		log.db_insert()
 	except Exception:
 		pass
+
+
+def _mark_accounting_error(delivery_order_name: str, error_message: str):
+	"""Mark Delivery Order with accounting error flag for manual review."""
+	try:
+		frappe.db.set_value(
+			"Delivery Order",
+			delivery_order_name,
+			{"accounting_error": 1},
+		)
+		_append_log(delivery_order_name, "error", error_message)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "_mark_accounting_error")
+
+
+def _notify_accounting_error(delivery_order_name: str, error_message: str):
+	"""Notify accounting team about errors via email and realtime."""
+	try:
+		# Realtime notification to current user
+		frappe.publish_realtime(
+			"accounting_error",
+			{
+				"delivery_order": delivery_order_name,
+				"error": error_message,
+				"message": f"Accounting error in {delivery_order_name}: {error_message}",
+			},
+			user=frappe.session.user,
+		)
+		
+		# Email notification to Accounts Manager role (if configured)
+		settings = frappe.get_single("Courier Settings")
+		notify_roles = ["Accounts Manager", "System Manager"]
+		
+		recipients = frappe.get_all(
+			"Has Role",
+			filters={"role": ["in", notify_roles], "parenttype": "User"},
+			fields=["parent"],
+			distinct=True,
+		)
+		
+		if recipients:
+			recipient_emails = [
+				frappe.db.get_value("User", r.parent, "email")
+				for r in recipients
+				if frappe.db.get_value("User", r.parent, "enabled")
+			]
+			
+			if recipient_emails:
+				frappe.sendmail(
+					recipients=recipient_emails,
+					subject=f"Accounting Error - Delivery Order {delivery_order_name}",
+					message=f"""
+						<p>An accounting error occurred while processing Delivery Order <strong>{delivery_order_name}</strong>:</p>
+						<p><strong>Error:</strong> {error_message}</p>
+						<p>Please review and process this manually.</p>
+						<p><a href="/app/delivery-order/{delivery_order_name}">View Delivery Order</a></p>
+					""",
+					delayed=False,
+				)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "_notify_accounting_error")

@@ -135,6 +135,21 @@ class Client(BaseCourierClient):
 				frappe.ValidationError,
 			)
 
+		# Clean response: Remove HTTP status code field if it exists
+		# to avoid confusion with delivery_status
+		if isinstance(data, dict) and "status" in data:
+			# Only remove if it's a numeric HTTP status code
+			if isinstance(data.get("status"), (int, str)):
+				try:
+					status_val = int(data["status"])
+					# If it's an HTTP status code (100-599), remove it
+					if 100 <= status_val <= 599:
+						# But preserve if there's no delivery_status field
+						if "delivery_status" in data or "current_status" in data:
+							data.pop("status", None)
+				except (ValueError, TypeError):
+					pass  # Not a numeric status, keep it
+
 		return data
 
 	@staticmethod
@@ -363,11 +378,32 @@ class Client(BaseCourierClient):
 	@staticmethod
 	def _normalise_status(raw: dict) -> dict:
 		"""Normalise a Steadfast status response to our internal format."""
-		delivery_status = raw.get("delivery_status") or raw.get("status") or "unknown"
+		# Get delivery_status - NEVER use "status" as it may be HTTP status code (200)
+		delivery_status = raw.get("delivery_status")
+		
+		# If delivery_status not found, check common alternative field names
+		if not delivery_status:
+			# Check for nested data
+			if "data" in raw and isinstance(raw["data"], dict):
+				delivery_status = raw["data"].get("delivery_status")
+			
+			# Still not found? Check current_status
+			if not delivery_status:
+				delivery_status = raw.get("current_status")
+			
+			# Last resort - default to unknown
+			if not delivery_status:
+				delivery_status = "unknown"
+				frappe.log_error(
+					f"Steadfast API response missing delivery_status field. Raw: {frappe.as_json(raw)[:500]}",
+					"Steadfast._normalise_status.missing_field"
+				)
+		
 		return_status = raw.get("return_status") or raw.get("return_delivery_status") or ""
+		
 		return {
-			"delivery_status": str(delivery_status).lower(),
-			"return_status": str(return_status).lower() if return_status else "",
+			"delivery_status": str(delivery_status).lower().strip(),
+			"return_status": str(return_status).lower().strip() if return_status else "",
 			"consignment_id": str(raw.get("consignment_id") or ""),
 			"tracking_code": str(raw.get("tracking_code") or ""),
 			"invoice": str(raw.get("invoice") or ""),

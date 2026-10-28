@@ -367,16 +367,33 @@ def sync_single_status(delivery_order_name: str) -> dict:
 
 	new_status = _sanitize_status(result.get("delivery_status"), "unknown")
 	old_status = do.delivery_status
+	
+	# Update tracking code if provided by API (may change during processing)
+	tracking_code = result.get("tracking_code") or do.tracking_code or ""
+	consignment_id = result.get("consignment_id") or do.consignment_id or ""
+	
+	# Update fields including tracking info
+	update_dict = {
+		"delivery_status": new_status,
+		"last_synced_on": now_datetime(),
+		"raw_response": json.dumps(result.get("raw") or result, ensure_ascii=False)[:5000],
+	}
+	
+	# Only update if values have changed (to avoid unnecessary DB writes)
+	if tracking_code and tracking_code != do.tracking_code:
+		update_dict["tracking_code"] = tracking_code
+		do.tracking_code = tracking_code  # Update in-memory object
+	
+	if consignment_id and consignment_id != do.consignment_id:
+		update_dict["consignment_id"] = consignment_id
+		do.consignment_id = consignment_id  # Update in-memory object
+	
+	# Always recalculate tracking_url in case provider/tracking_code changed
+	new_tracking_url = do.get_tracking_url()
+	if new_tracking_url != do.tracking_url:
+		update_dict["tracking_url"] = new_tracking_url
 
-	frappe.db.set_value(
-		"Delivery Order",
-		delivery_order_name,
-		{
-			"delivery_status": new_status,
-			"last_synced_on": now_datetime(),
-			"raw_response": json.dumps(result.get("raw") or result, ensure_ascii=False)[:5000],
-		},
-	)
+	frappe.db.set_value("Delivery Order", delivery_order_name, update_dict)
 
 	if new_status != old_status:
 		_append_log(delivery_order_name, new_status, f"Status updated from {old_status} to {new_status}")

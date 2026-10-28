@@ -6,7 +6,7 @@ import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import now_datetime
+from frappe.utils import flt, now_datetime
 
 # Status groups for easier comparisons
 TERMINAL_STATUSES = {"delivered", "cancelled", "partial_delivered"}
@@ -159,43 +159,99 @@ class DeliveryOrder(Document):
 	# ---------------------------------------------------------------------------
 
 	def update_status(self, new_status: str, message: str = "", commit: bool = False):
-		"""Update delivery_status, append a log row, and save.
+		"""Update delivery_status, append a log row, and save with full transaction safety.
 
 		Safe to call from background jobs / API methods on an already-loaded doc.
+		Ensures accounting entries are created atomically with status update.
 		"""
 		old_status = self.delivery_status
-		self.db_set("delivery_status", new_status, update_modified=False)
-		self.db_set("last_synced_on", now_datetime(), update_modified=False)
-
-		# Append log row (uses direct DB insert to avoid re-loading full doc)
-		log_entry = frappe.get_doc(
-			{
-				"doctype": "Delivery Order Log",
-				"parenttype": "Delivery Order",
-				"parent": self.name,
-				"parentfield": "delivery_logs",
-				"status": new_status,
-				"message": message or f"Status changed from {old_status} to {new_status}",
-				"logged_at": now_datetime(),
-			}
-		)
-		log_entry.db_insert()
-
-		if commit:
-			frappe.db.commit()
-
-		# Mirror status on the linked SO/DN
-		self._update_reference_status(new_status)
-
-		# Accounting integration triggers
+		savepoint = f"update_status_{self.name.replace('-', '_')}"
+		
 		try:
+			frappe.db.savepoint(savepoint)
+			
+			# Update status fields
+			self.db_set("delivery_status", new_status, update_modified=False)
+			self.db_set("last_synced_on", now_datetime(), update_modified=False)
+
+			# Append log row (uses direct DB insert to avoid re-loading full doc)
+			log_entry = frappe.get_doc(
+				{
+					"doctype": "Delivery Order Log",
+					"parenttype": "Delivery Order",
+					"parent": self.name,
+					"parentfield": "delivery_logs",
+					"status": new_status,
+					"message": message or f"Status changed from {old_status} to {new_status}",
+					"logged_at": now_datetime(),
+				}
+			)
+			log_entry.db_insert()
+
+			# Accounting integration triggers - MUST succeed for delivered/cancelled statuses
 			from delivery_system.accounting import post_clearing_entry, reverse_clearing_entry
+			
 			if new_status in ("delivered", "partial_delivered"):
-				post_clearing_entry(self)
+				# For delivered status, accounting MUST succeed if COD amount > 0
+				if flt(self.cod_amount or 0) > 0:
+					pe_name = post_clearing_entry(self)
+					if not pe_name:
+						# Critical failure - cannot mark as delivered without payment entry
+						raise frappe.ValidationError(
+							frappe._(
+								"Cannot update status to {0}: Failed to create Payment Entry. "
+								"Please check accounting configuration and try again."
+							).format(new_status)
+						)
+				
 			elif new_status == "cancelled" and getattr(self, "clearing_entry_posted", 0):
-				reverse_clearing_entry(self)
-		except Exception:
-			frappe.log_error(frappe.get_traceback(), "DeliveryOrder.update_status.accounting")
+				# For cancelled status, reversal MUST succeed if entry was posted
+				reversal_result = reverse_clearing_entry(self)
+				if not reversal_result:
+					# Log warning but allow cancellation (reversal can be done manually)
+					frappe.log_error(
+						f"Failed to reverse clearing entry for {self.name} during cancellation",
+						"DeliveryOrder.update_status.reversal_failed"
+					)
+					frappe.msgprint(
+						frappe._(
+							"Warning: Could not automatically reverse the clearing entry. "
+							"Please cancel Payment Entry {0} manually."
+						).format(
+							getattr(self, "clearing_payment_entry", None) 
+							or getattr(self, "clearing_journal_entry", None)
+						),
+						indicator="orange",
+						alert=True
+					)
+
+			# All succeeded - commit the savepoint
+			if commit:
+				frappe.db.commit()
+
+			# Mirror status on the linked SO/DN (non-critical, outside transaction)
+			try:
+				self._update_reference_status(new_status)
+			except Exception:
+				frappe.log_error(
+					frappe.get_traceback(), 
+					"DeliveryOrder.update_status.reference_update"
+				)
+				
+		except Exception as exc:
+			# Rollback everything on any failure
+			frappe.db.rollback(to_savepoint=savepoint)
+			frappe.log_error(frappe.get_traceback(), "DeliveryOrder.update_status")
+			
+			# Re-raise with user-friendly message
+			if isinstance(exc, frappe.ValidationError):
+				raise
+			else:
+				frappe.throw(
+					frappe._(
+						"Failed to update delivery status to {0}: {1}"
+					).format(new_status, str(exc))
+				)
 
 	def _update_reference_status(self, status: str):
 		"""Push delivery_status and tracking_url to custom fields on linked Sales Order and Delivery Note."""
@@ -248,3 +304,5 @@ class DeliveryOrder(Document):
 	@staticmethod
 	def is_terminal(status: str) -> bool:
 		return status in TERMINAL_STATUSES
+
+

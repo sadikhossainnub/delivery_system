@@ -11,6 +11,7 @@
   "min_days_pending",
   "enable_accounting_automation",
   "variance_threshold_auto_post",
+  "auto_create_sales_invoice",
   "section_break_accounts",
   "courier_accounts"
  ],
@@ -60,6 +61,13 @@
    "fieldname": "variance_threshold_auto_post",
    "fieldtype": "Currency",
    "label": "Auto Post Variance Threshold"
+  },
+  {
+   "default": "0",
+   "description": "Automatically create and submit Sales Invoice from Sales Order/Delivery Note when marking Delivery Order as delivered",
+   "fieldname": "auto_create_sales_invoice",
+   "fieldtype": "Check",
+   "label": "Auto Create Sales Invoice on Delivery"
   },
   {
    "fieldname": "section_break_accounts",
