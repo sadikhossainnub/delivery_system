@@ -370,6 +370,13 @@ def post_clearing_entry(
 		pe.remarks = remarks
 		pe.posting_date = today()
 
+		# Handle site-specific custom mandatory fields gracefully
+		try:
+			if hasattr(pe, "custom_reason_of_entry") and not pe.get("custom_reason_of_entry"):
+				pe.custom_reason_of_entry = "Courier COD Collection - Auto"
+		except Exception:
+			pass
+
 		pe.insert(ignore_permissions=True)
 		pe.submit()
 
@@ -399,7 +406,7 @@ def post_clearing_entry(
 		return pe.name
 		
 	except Exception as exc:
-		frappe.db.rollback(to_savepoint=savepoint)
+		frappe.db.rollback(save_point=savepoint)
 		error_msg = f"Failed to post clearing Payment Entry: {str(exc)}"
 		frappe.log_error(frappe.get_traceback(), "post_clearing_entry")
 		_append_log(delivery_order_doc.name, "error", error_msg)
@@ -553,6 +560,13 @@ def post_payout_entries(payout_data: dict, matched_orders: list) -> dict:
 						"cost_center": cost_center,
 						"amount": charge_amount,
 					})
+
+				# Handle site-specific custom mandatory fields gracefully
+				try:
+					if hasattr(pe, "custom_reason_of_entry") and not pe.get("custom_reason_of_entry"):
+						pe.custom_reason_of_entry = "Courier Payout Settlement - Auto"
+				except Exception:
+					pass
 
 				pe.insert(ignore_permissions=True)
 				pe.submit()
