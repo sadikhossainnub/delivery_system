@@ -415,6 +415,23 @@ def post_clearing_entry(
 		return None
 
 
+@frappe.whitelist()
+def retry_clearing_entry(delivery_order_name: str, force: bool = False) -> dict:
+	"""Whitelist wrapper to manually post or retry clearing entry from UI."""
+	if not frappe.has_permission("Delivery Order", "write"):
+		frappe.throw(frappe._("Insufficient Permission"), frappe.PermissionError)
+
+	do = frappe.get_doc("Delivery Order", delivery_order_name)
+	pe_name = post_clearing_entry(do, force=force, auto_create_invoice=True)
+	if pe_name:
+		return {"success": True, "payment_entry": pe_name}
+	else:
+		return {
+			"success": False,
+			"error": frappe._("Failed to create Payment Entry. Check error logs for details."),
+		}
+
+
 def reverse_clearing_entry(delivery_order_doc) -> str | None:
 	"""Cancel the clearing Payment Entry when Delivery Order is cancelled.
 

@@ -399,6 +399,16 @@ def sync_single_status(delivery_order_name: str) -> dict:
 		_append_log(delivery_order_name, new_status, f"Status updated from {old_status} to {new_status}")
 		_sync_reference_fields(do.reference_doctype, do.reference_name, delivery_order_name, new_status)
 
+	# Trigger accounting clearing entry if delivered
+	if new_status in ("delivered", "partial_delivered"):
+		do_doc = frappe.get_doc("Delivery Order", delivery_order_name)
+		if not getattr(do_doc, "clearing_entry_posted", 0) and flt(do_doc.cod_amount or 0) > 0:
+			from delivery_system.accounting import post_clearing_entry
+			try:
+				post_clearing_entry(do_doc)
+			except Exception:
+				frappe.log_error(frappe.get_traceback(), "sync_single_status.post_clearing_entry")
+
 	frappe.db.commit()
 	return {"status": new_status, "previous_status": old_status}
 

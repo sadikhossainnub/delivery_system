@@ -132,6 +132,16 @@ class DeliveryOrder(Document):
 		"""Update linked SO/DN custom field on cancel."""
 		self._update_reference_status("cancelled")
 
+	def on_update(self):
+		"""Ensure clearing Payment Entry is created whenever status becomes delivered."""
+		if self.delivery_status in ("delivered", "partial_delivered"):
+			if not getattr(self, "clearing_entry_posted", 0) and flt(self.cod_amount or 0) > 0:
+				from delivery_system.accounting import post_clearing_entry
+				try:
+					post_clearing_entry(self)
+				except Exception:
+					frappe.log_error(frappe.get_traceback(), "DeliveryOrder.on_update.post_clearing_entry")
+
 	# ---------------------------------------------------------------------------
 	# Validation helpers
 	# ---------------------------------------------------------------------------
@@ -240,7 +250,7 @@ class DeliveryOrder(Document):
 				
 		except Exception as exc:
 			# Rollback everything on any failure
-			frappe.db.rollback(to_savepoint=savepoint)
+			frappe.db.rollback(save_point=savepoint)
 			frappe.log_error(frappe.get_traceback(), "DeliveryOrder.update_status")
 			
 			# Re-raise with user-friendly message
